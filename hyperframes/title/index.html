@@ -1,0 +1,90 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>HyperFrames · title</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap" />
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+  #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden;
+    font-family: "Chakra Petch", sans-serif; color: #fff; background: radial-gradient(ellipse at center, #0d1418 0%, #030507 75%); }
+  .siren { position: absolute; top: -20%; width: 70%; height: 140%; filter: blur(80px); opacity: 0; mix-blend-mode: screen; }
+  #siren-red { left: -20%; background: radial-gradient(circle, #ff2d3d 0%, transparent 60%); }
+  #siren-blue { right: -20%; background: radial-gradient(circle, #2d6bff 0%, transparent 60%); }
+  .scanlines { position: absolute; inset: 0; background: repeating-linear-gradient(0deg, rgba(255,255,255,.035) 0 2px, transparent 2px 5px); }
+  .bracket { position: absolute; width: 90px; height: 90px; border: 3px solid #1fb5b0; opacity: .8; }
+  #b-tl { left: 80px; top: 80px; border-right: 0; border-bottom: 0; }
+  #b-tr { right: 80px; top: 80px; border-left: 0; border-bottom: 0; }
+  #b-bl { left: 80px; bottom: 80px; border-right: 0; border-top: 0; }
+  #b-br { right: 80px; bottom: 80px; border-left: 0; border-top: 0; }
+  #file { position: absolute; left: 130px; top: 120px; font: 600 26px "JetBrains Mono", monospace; color: #1fb5b0; letter-spacing: .15em; }
+  #meta { position: absolute; right: 130px; top: 120px; font: 400 22px "JetBrains Mono", monospace; color: rgba(255,255,255,.55); text-align: right; line-height: 1.6; }
+  #reticle { position: absolute; left: 50%; top: 46%; width: 620px; height: 620px; margin: -310px 0 0 -310px; border-radius: 50%;
+    border: 2px dashed rgba(255,138,42,.45); }
+  #reticle::before, #reticle::after { content: ""; position: absolute; background: rgba(255,138,42,.5); }
+  #reticle::before { left: 50%; top: -40px; bottom: -40px; width: 2px; }
+  #reticle::after { top: 50%; left: -40px; right: -40px; height: 2px; }
+  #title { position: absolute; left: 0; right: 0; top: 36%; text-align: center; font-weight: 700; font-size: 190px; line-height: .95; letter-spacing: .06em; }
+  #title .word { display: block; }
+  #title .ch { display: inline-block; }
+  #escape { color: #ff8a2a; text-shadow: 0 0 40px rgba(255,138,42,.55); }
+  #redact { position: absolute; left: 50%; top: 71%; height: 46px; width: 760px; margin-left: -380px; background: #000;
+    transform-origin: left center; }
+  #tagline { position: absolute; left: 0; right: 0; top: 71%; line-height: 46px; text-align: center; font: 600 28px "JetBrains Mono", monospace; letter-spacing: .35em; color: rgba(255,255,255,.8); }
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="title" data-start="0" data-width="1920" data-height="1080">
+  <div id="siren-red" class="siren"></div>
+  <div id="siren-blue" class="siren"></div>
+  <div id="reticle"></div>
+  <div class="scanlines"></div>
+  <div id="b-tl" class="bracket"></div><div id="b-tr" class="bracket"></div>
+  <div id="b-bl" class="bracket"></div><div id="b-br" class="bracket"></div>
+  <div id="file">CLASSIFIED // INMATE 4471</div>
+  <div id="meta">BLOCK A · CELL 12<br />STATUS: <span style="color:#ff2d3d">MAXIMUM SECURITY</span></div>
+  <div id="title">
+    <span class="word" id="prison">PRISON</span>
+    <span class="word" id="escape">ESCAPE</span>
+  </div>
+  <div id="tagline">YOU DIRECT THE BREAKOUT</div>
+  <div id="redact"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+  <script>
+    // Split title words into characters for the stagger.
+    document.querySelectorAll("#title .word").forEach(w => {
+      w.innerHTML = [...w.textContent].map(c => `<span class="ch">${c}</span>`).join("");
+    });
+
+    const tl = gsap.timeline({ paused: true });
+    tl.from(".bracket", { scale: 1.6, opacity: 0, duration: 0.5, stagger: 0.06, ease: "power3.out" }, 0)
+      .from("#file", { opacity: 0, x: -30, duration: 0.5 }, 0.2)
+      .from("#meta", { opacity: 0, x: 30, duration: 0.5 }, 0.3)
+      .from("#reticle", { scale: 0.3, opacity: 0, rotation: -90, duration: 1.1, ease: "expo.out" }, 0.2)
+      .from("#prison .ch", { y: 120, opacity: 0, duration: 0.5, stagger: 0.05, ease: "back.out(2)" }, 0.5)
+      .from("#escape .ch", { y: -120, opacity: 0, duration: 0.5, stagger: 0.05, ease: "back.out(2)" }, 0.8)
+      .fromTo("#redact", { scaleX: 1 }, { scaleX: 0, transformOrigin: "right center", duration: 0.6, ease: "power2.inOut" }, 1.5)
+      // Looping ambience: police sirens and reticle drift.
+      .to("#siren-red", { opacity: 0.55, duration: 0.45, repeat: -1, yoyo: true, ease: "sine.inOut" }, 0.6)
+      .to("#siren-blue", { opacity: 0.55, duration: 0.45, repeat: -1, yoyo: true, ease: "sine.inOut", delay: 0.45 }, 0.6)
+      .to("#reticle", { rotation: 360, duration: 24, repeat: -1, ease: "none" }, 1.3)
+      .to("#escape", { x: "random(-6, 6)", duration: 0.08, repeat: -1, repeatRefresh: true, repeatDelay: 2.5 }, 2);
+
+    window.__timelines = window.__timelines || {};
+    window.__timelines.title = tl;
+
+    // Fit the 1920x1080 stage to the frame (cover).
+    const fit = () => {
+      const s = Math.max(innerWidth / 1920, innerHeight / 1080);
+      const stage = document.getElementById("stage");
+      stage.style.transform = `scale(${s})`;
+      stage.style.left = `${(innerWidth - 1920 * s) / 2}px`;
+      stage.style.top = `${(innerHeight - 1080 * s) / 2}px`;
+    };
+    addEventListener("resize", fit); fit();
+    if (!new URLSearchParams(location.search).has("embed")) tl.play();
+  </script>
+</div>
+</body>
+</html>

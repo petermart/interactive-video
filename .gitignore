@@ -1,0 +1,7 @@
+keys.json
+.env
+node_modules/
+out/
+dist/
+media/cache/
+data/sessions/

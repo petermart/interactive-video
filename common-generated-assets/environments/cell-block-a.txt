@@ -1,0 +1,5 @@
+Anime background art, 16:9, cinematic establishing plate inside a gritty modern maximum-security prison. Empty of people. Painterly anime background style with detailed hard-surface props and clean, readable perspective. Warm sodium-vapor orange practical lights against cool teal shadows. Strong leading lines with the focal point on a rule-of-thirds intersection. Slight haze and volumetric light. Designed as a reusable reference plate for anime video generation. No text, no signage lettering, no watermark.
+
+ENVIRONMENT: Larry's cell in Cell Block A (starting location).
+Cramped concrete cell seen from inside, low angle past the steel bunk bed toward the barred door. Thin mattress, stainless steel toilet-sink combo, scratched tally marks on the wall, a small air vent grate above the bunk (a possible escape path). Through the bars: the multi-tier cell block with catwalk railings. Single caged orange bulb overhead, teal moonlight slicing through a tiny high window.
+Traversable paths to show: barred cell door to the corridor, vent grate above the bunk.

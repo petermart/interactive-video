@@ -1,0 +1,9 @@
+{
+  "outcomeMode": "vibes",
+  "successProbability": 60,
+  "creativityPoints": 30,
+  "promptsTillSuccess": 6,
+  "liveLLM": false,
+  "liveVideo": false,
+  "llmModel": "google/gemini-3.8-flash"
+}

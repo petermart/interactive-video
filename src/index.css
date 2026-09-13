@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --color-sodium: #ff8a2a;
+  --color-teal: #1fb5b0;
+  --color-siren-red: #ff2d3d;
+  --color-siren-blue: #2d6bff;
+  --color-cell: #07090c;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full m-0 bg-cell text-white font-display overflow-hidden;
+  }
+}
