@@ -3,10 +3,11 @@ import { useState } from "react";
 type Props = {
   enabled: boolean;
   status: string;
+  placeholder: string;
   onSubmit: (direction: string) => void;
 };
 
-export function PromptBar({ enabled, status, onSubmit }: Props) {
+export function PromptBar({ enabled, status, placeholder, onSubmit }: Props) {
   const [text, setText] = useState("");
 
   const submit = (e: React.FormEvent) => {
@@ -27,7 +28,7 @@ export function PromptBar({ enabled, status, onSubmit }: Props) {
           onChange={e => setText(e.target.value)}
           disabled={!enabled}
           maxLength={500}
-          placeholder={enabled ? "Tell the protagonist what to do…" : status || "…"}
+          placeholder={enabled ? placeholder : status || "…"}
           className="w-full rounded-md border border-white/15 bg-white/5 px-4 py-3 font-mono text-base text-white placeholder-white/40 outline-none backdrop-blur transition focus:border-sodium disabled:opacity-60"
         />
         {!enabled && status && (

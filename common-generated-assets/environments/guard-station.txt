@@ -3,3 +3,4 @@ Anime background art, 16:9, cinematic establishing plate inside a gritty modern 
 ENVIRONMENT: Guard control room.
 A dark control room lit by a wall of glowing CCTV monitors, a big console of door-release switches with red and green indicator lights, a key locker cabinet, radios charging on a rack, a half-eaten sandwich and coffee cups. Monitor glow in teal, warning lamps in orange.
 Traversable paths to show: door to the main hall, door to the visitation room, stairs up to the warden's office.
+As generated: key cabinet with glass doors, radio charging rack, stairs up in the background, two steel doors with round windows (labeled MAIN HALL and VISITATION ROOM), a curved console of switches with orange warning beacons, a sandwich and coffee mug, and a wall of teal CCTV monitors.

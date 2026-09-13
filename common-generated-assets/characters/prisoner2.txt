@@ -6,3 +6,4 @@ CHARACTER: Prisoner 2, "The Hacker Kid".
 A skinny tech-savvy kid, around 19, with taped-together glasses, a wild curly afro and restless, fidgety hands. Oversized ORANGE prison jumpsuit with pockets stuffed with wires.
 Signature prop: a contraband calculator rewired with exposed circuitry.
 Head close-ups: excited grin, nervous glance, eureka moment.
+As generated: big curly afro, round glasses, orange jumpsuit with a large stenciled "2" on the back, wires stuffed in the pockets, grey sneakers; prop is a rewired calculator with a green circuit board.

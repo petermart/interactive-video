@@ -17,9 +17,14 @@ export const MAX_IMAGE_REFS = 9;
 
 /** Submits an H3 generation, waits for it, and caches the mp4 locally. Spends credits. */
 export async function generateVideo({ durationSecs, ...req }: VideoRequest) {
+  // The site plays its own soundtrack, so every H3 prompt must forbid generated music
+  // (step clips add their own sound-effects/foley line; loops ask for silence).
+  const prompt = /no music/i.test(req.prompt) ? req.prompt : `${req.prompt}
+No music.`;
   const body = {
     model: "MiniMax-H3",
     ...req,
+    prompt,
     src_image_urls: req.src_image_urls?.slice(0, MAX_IMAGE_REFS),
     video_config: { duration_secs: durationSecs, height: 480, aspect_ratio: "16:9" },
   };
@@ -50,15 +55,13 @@ export async function generateVideo({ durationSecs, ...req }: VideoRequest) {
 
 /** Uploads a local file and returns the `@input/...` reference usable in src_image_urls. */
 export async function uploadFile(path: string) {
-  // TODO: verify the response shape against a real upload (see master-plan.md).
+  // Response: {"artifact_path": "<account>/<id>__<name>", ...}; generate requests reference it as @input/<path>.
   const form = new FormData();
   form.append("file", Bun.file(path));
   const res = await fetch(`${API}/upload`, { method: "POST", headers: auth, body: form });
   const body = await res.json();
-  if (!res.ok) throw new Error(`MachGen upload ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
-  const ref = body.ref ?? body.url ?? body.artifact_path ?? body.path;
-  if (!ref) throw new Error(`MachGen upload: unrecognized response ${JSON.stringify(body)}`);
-  return String(ref);
+  if (!res.ok || !body.artifact_path) throw new Error(`MachGen upload ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
+  return `@input/${body.artifact_path}`;
 }
 
 /** Extracts the last frame of a video as a PNG (ffmpeg). */

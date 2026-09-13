@@ -6,3 +6,4 @@ CHARACTER: Prisoner 9, "The Gang Boss".
 A hulking gang leader in his 40s with face tattoos, dark sunglasses worn indoors and heavily scarred knuckles. ORANGE prison jumpsuit worn open over a white undershirt, a thin gold chain hidden under the collar.
 Signature prop: cracking his knuckles.
 Head close-ups: intimidating stillness, slow smile, explosive anger.
+As generated: shaved head with neck and face tattoos, dark sunglasses, orange jumpsuit unzipped over a white undershirt (back view reads dark olive-green), scarred knuckles; prop is a small spiral notepad. No visible gold chain.

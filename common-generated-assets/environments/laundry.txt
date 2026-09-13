@@ -3,3 +3,4 @@ Anime background art, 16:9, cinematic establishing plate inside a gritty modern 
 ENVIRONMENT: Prison laundry room.
 Rows of huge industrial washing machines and tumble dryers, rolling canvas laundry carts piled with orange jumpsuits and white sheets, steam pipes along the ceiling, lint in the air catching the light. A wide roll-up door for linen delivery at the back.
 Traversable paths to show: roll-up delivery door to the loading dock, laundry chute, pipe access panel to the utility tunnels.
+As generated: brick-and-tile room with rows of front-loading machines, canvas carts of orange and white laundry, a roll-up door at the back, a laundry chute, and a steel wall panel labeled UTILITY ACCESS.

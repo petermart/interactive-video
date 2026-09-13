@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>HyperFrames · intro-title</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap" />
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
+  #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden;
+    font-family: "Chakra Petch", sans-serif; color: #fff; }
+  /* Transparent overlay over the intro video: only a soft vignette so the type reads. */
+  #vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 45%, transparent 45%, rgba(0,0,0,.55) 100%); }
+  .edge { position: absolute; top: 0; bottom: 0; width: 18%; opacity: 0; mix-blend-mode: screen; }
+  #edge-red { left: 0; background: linear-gradient(90deg, rgba(255,45,61,.35), transparent); }
+  #edge-blue { right: 0; background: linear-gradient(270deg, rgba(45,107,255,.35), transparent); }
+  #lockup { position: absolute; left: 0; right: 0; top: 150px; text-align: center; }
+  #kicker { font: 600 24px "JetBrains Mono", monospace; letter-spacing: .5em; color: #1fb5b0; text-shadow: 0 2px 12px rgba(0,0,0,.9); }
+  #title { margin-top: 10px; font-weight: 700; font-size: 150px; line-height: 1; letter-spacing: .08em;
+    text-shadow: 0 6px 30px rgba(0,0,0,.85); white-space: nowrap; }
+  #title .ch { display: inline-block; }
+  #title .escape { color: #ff8a2a; text-shadow: 0 0 36px rgba(255,138,42,.5), 0 6px 30px rgba(0,0,0,.85); }
+  #rule { width: 520px; height: 3px; margin: 18px auto 0; background: linear-gradient(90deg, transparent, #ff8a2a, transparent); transform-origin: center; }
+  #scan { position: absolute; left: 0; right: 0; height: 2px; top: 0; background: linear-gradient(90deg, transparent, rgba(31,181,176,.6), transparent); }
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="intro-title" data-start="0" data-width="1920" data-height="1080">
+  <div id="vignette"></div>
+  <div id="edge-red" class="edge"></div>
+  <div id="edge-blue" class="edge"></div>
+  <div id="scan"></div>
+  <div id="lockup">
+    <div id="kicker">INMATE 4471 · LARRY</div>
+    <div id="title"><span class="word">PRISON</span> <span class="word escape">ESCAPE</span></div>
+    <div id="rule"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
+  <script>
+    document.querySelectorAll("#title .word").forEach(w => {
+      w.innerHTML = [...w.textContent].map(c => `<span class="ch">${c}</span>`).join("");
+    });
+
+    const tl = gsap.timeline({ paused: true });
+    tl.from("#kicker", { opacity: 0, letterSpacing: "1.2em", duration: 1.2, ease: "power3.out" }, 0.2)
+      .from("#title .ch", { opacity: 0, y: 40, rotateX: -80, duration: 0.7, stagger: 0.045, ease: "back.out(1.8)" }, 0.4)
+      .from("#rule", { scaleX: 0, duration: 0.9, ease: "power2.inOut" }, 1.1)
+      // Light, continuous motion for the length of the looping intro.
+      .to("#title", { y: -6, duration: 3, repeat: -1, yoyo: true, ease: "sine.inOut" }, 1.6)
+      .to("#title .escape", { opacity: 0.82, duration: 0.12, repeat: -1, yoyo: true, repeatDelay: 3.4 }, 2.2)
+      .to("#edge-red", { opacity: 1, duration: 0.9, repeat: -1, yoyo: true, ease: "sine.inOut" }, 0.8)
+      .to("#edge-blue", { opacity: 1, duration: 0.9, repeat: -1, yoyo: true, ease: "sine.inOut", delay: 0.9 }, 0.8)
+      .fromTo("#scan", { y: 0, opacity: 0 }, { y: 1080, opacity: 1, duration: 4.5, repeat: -1, ease: "none" }, 0.5);
+
+    window.__timelines = window.__timelines || {};
+    window.__timelines["intro-title"] = tl;
+
+    const fit = () => {
+      const s = Math.min(innerWidth / 1920, innerHeight / 1080); // contain: keep all type on screen
+      const stage = document.getElementById("stage");
+      stage.style.transform = `scale(${s})`;
+      stage.style.left = `${(innerWidth - 1920 * s) / 2}px`;
+      stage.style.top = `${(innerHeight - 1080 * s) / 2}px`;
+    };
+    addEventListener("resize", fit); fit();
+    if (!new URLSearchParams(location.search).has("embed")) tl.play();
+  </script>
+</div>
+</body>
+</html>

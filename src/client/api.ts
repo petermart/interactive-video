@@ -13,7 +13,7 @@ export const api = {
   settings: () => fetch("/api/settings").then(r => json<Settings>(r)),
   saveSettings: (patch: Partial<Settings>) =>
     fetch("/api/settings", { method: "PUT", body: JSON.stringify(patch) }).then(r => json<Settings>(r)),
-  session: () => fetch("/api/session", { method: "POST" }).then(r => json<{ root: StoryNode; music: string | null }>(r)),
+  session: () => fetch("/api/session", { method: "POST" }).then(r => json<{ root: StoryNode; music: string | null; thinkingLoop: string }>(r)),
   direct: (fromNodeId: string, direction: string) =>
     fetch("/api/direct", { method: "POST", body: JSON.stringify({ fromNodeId, direction }) }).then(r =>
       json<{ jobId: string }>(r),

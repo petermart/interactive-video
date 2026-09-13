@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 
 type Props = {
   /** Folder name under /hyperframes, also the data-composition-id. */
-  name: "title" | "prompt" | "failed" | "escaped";
+  name: "title" | "intro-title" | "prompt" | "failed" | "escaped";
   /** Values for elements marked data-bind="key" inside the composition. */
   bind?: Record<string, string>;
   className?: string;

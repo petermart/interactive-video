@@ -22,18 +22,33 @@ async function generate(promptFile: string) {
   const submitted = await submit.json();
   if (!submit.ok) throw new Error(`${promptFile}: submit ${submit.status} ${JSON.stringify(submitted)}`);
 
+  // Network hiccups must not lose a paid request: retry polls and the download.
   let req: any = submitted;
   while (!["success", "failed", "cancelled"].includes(req.status)) {
     await Bun.sleep(2000);
-    req = await (await fetch(`${API}/${submitted.request_id}`, { headers })).json();
+    req = await retry(async () => (await fetch(`${API}/${submitted.request_id}`, { headers })).json(), req);
   }
   if (req.status !== "success") throw new Error(`${promptFile}: ${req.status} ${JSON.stringify(req).slice(0, 400)}`);
 
   const url = req.outcome?.media_urls?.[0]?.url;
   if (!url) throw new Error(`${promptFile}: no media url in ${JSON.stringify(req.outcome)}`);
   const out = promptFile.replace(/\.txt$/, ".png");
-  await Bun.write(out, await fetch(url));
+  const image = await retry(async () => (await fetch(url, { signal: AbortSignal.timeout(180_000) })).arrayBuffer());
+  if (!image) throw new Error(`${promptFile}: download failed; request ${submitted.request_id} succeeded, fetch it by id`);
+  await Bun.write(out, image);
   console.log(`${out} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+}
+
+async function retry<T>(fn: () => Promise<T>, fallback?: T, attempts = 4): Promise<T> {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      console.warn(`  retry ${i}/${attempts}: ${err}`);
+      await Bun.sleep(1500 * i);
+    }
+  }
+  return fallback as T;
 }
 
 const files = process.argv.slice(2);

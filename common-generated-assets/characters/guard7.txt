@@ -6,3 +6,4 @@ CHARACTER: Guard 7, "The Control Room Watcher".
 A wiry, paranoid control-room guard in his 30s with slicked hair, dark circles under his eyes, a headset with a boom mic, and thick glasses reflecting glowing CCTV screens. Navy uniform with rolled-up sleeves.
 Signature prop: an energy drink can.
 Head close-ups: squinting at a screen, jumpy flinch, smug grin.
+As generated: black slicked hair, rectangular glasses with teal screen reflections, headset with boom mic, navy uniform with rolled sleeves and gloves; his energy drink is an orange-and-blue can labeled "VOLT COLA".

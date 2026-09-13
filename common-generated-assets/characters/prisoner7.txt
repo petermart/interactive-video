@@ -6,3 +6,4 @@ CHARACTER: Prisoner 7, "The Ex-Soldier".
 A stoic ex-soldier in his 50s with a grey crew cut, square jaw and rigid military posture. Perfectly squared-away ORANGE prison jumpsuit, sleeves rolled with precision.
 Signature prop: dog tags clenched in a fist.
 Head close-ups: thousand-yard stare, tactical nod, rare smile.
+As generated: grey crew cut, square jaw, orange jumpsuit with rolled sleeves and a white "P-7" chest patch, brown boots, dog tags.

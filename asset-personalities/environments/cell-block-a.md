@@ -16,7 +16,7 @@ Big Oso (neighboring cell), Wren (upper tier)
 - sharpened spoon
 - bedsheets
 - thin mattress
-- loose vent grate screws
+- vent grate screws
 - tally-mark wall
 
 ## Hazards
@@ -26,7 +26,7 @@ Big Oso (neighboring cell), Wren (upper tier)
 
 ## Ways in and out
 - Barred cell door → hall-main (needs key, trick or bribe)
-- Vent grate above bunk → air-vents (needs spoon/screwdriver)
+- Vent grate high on the back wall → air-vents (climb the bunk bed; needs spoon/screwdriver)
 - Stairs → cell-block-tier (once door is open)
 
 ## Clever ideas that should score high innovation

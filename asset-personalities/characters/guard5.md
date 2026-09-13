@@ -11,8 +11,8 @@ A clean shot, and nothing else.
 Only sees what his searchlight and scope point at. Blinded by bright light or smoke, and has a shift change at midnight.
 
 ## Usually found in
-- perimeter-fence (tower)
-- yard (tower)
+- guard-tower (always in the cabin)
+- perimeter-fence (covers it from the tower)
 - rooftop (in view)
 
 ## How they can help Larry

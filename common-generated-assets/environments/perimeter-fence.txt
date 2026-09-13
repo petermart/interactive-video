@@ -3,3 +3,4 @@ Anime background art, 16:9, cinematic establishing plate inside a gritty modern 
 ENVIRONMENT: Outer perimeter fence at night (possible exit).
 Double row of tall chain-link fences topped with coiled razor wire and a no-man's-land gravel strip between them, a guard tower with a sweeping searchlight, a patrol road, and dark teal forest beyond the fence. Orange sodium floodlights on tall poles cast long fence shadows.
 Traversable paths to show: gap between fence lines, a weak spot at the bottom of the fence, the dark forest beyond.
+As generated: a long patrol road running between tall razor-wire chain-link fences, orange floodlight poles, a guard tower with a searchlight on the right, and a dark teal pine forest beyond.

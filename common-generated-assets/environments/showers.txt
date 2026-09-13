@@ -3,3 +3,4 @@ Anime background art, 16:9, cinematic establishing plate inside a gritty modern 
 ENVIRONMENT: Communal prison showers.
 Tiled communal shower room with cracked teal tiles, rusty exposed pipes and shower heads, dripping water, puddles reflecting orange light, a loose rusted floor drain grate in the center, and a pipe access panel on the wall.
 Traversable paths to show: door to the main hall, side door to the laundry, pipe access panel to the utility tunnels, the loose drain grate down to the sewer drain.
+As generated: cracked teal tiles, rusty exposed pipes and shower heads, puddles, a loose drain grate in the center, a steel door on the left, an open doorway on the right, and a round vault-style steel hatch on the back wall.

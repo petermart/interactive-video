@@ -7,44 +7,93 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
   #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden;
-    font-family: "Chakra Petch", sans-serif; color: #fff; }
-  #glow { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 60%, rgba(255,138,42,.35) 0%, rgba(4,20,24,.85) 75%); }
-  #stamp { position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%) rotate(-8deg); padding: 10px 60px; border: 12px solid #1fb5b0;
-    font-weight: 700; font-size: 230px; letter-spacing: .1em; color: #1fb5b0; text-shadow: 0 0 50px rgba(31,181,176,.6); }
-  #line { position: absolute; left: 0; right: 0; top: 700px; text-align: center; font: 600 38px "JetBrains Mono", monospace; letter-spacing: .35em; color: #ff8a2a; }
-  .ray { position: absolute; left: 50%; top: 60%; width: 8px; height: 1400px; margin-left: -4px; transform-origin: 50% 0; background: linear-gradient(rgba(255,138,42,.25), transparent); }
+    font-family: "Chakra Petch", sans-serif; color: #fff; --green: #3dff7a; --green-deep: #0fbf55; }
+  #dim { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, rgba(0,40,15,.35) 0%, rgba(0,0,0,.82) 78%); }
+  #flash { position: absolute; inset: 0; background: var(--green); opacity: 0; mix-blend-mode: screen; }
+  #rays { position: absolute; left: 960px; top: 470px; width: 0; height: 0; }
+  .ray { position: absolute; left: -5px; top: 0; width: 10px; height: 1500px; transform-origin: 50% 0;
+    background: linear-gradient(rgba(61,255,122,.35), transparent 70%); }
+  #ring { position: absolute; left: 50%; top: 470px; width: 900px; height: 900px; margin: -450px 0 0 -450px; border-radius: 50%;
+    border: 4px solid rgba(61,255,122,.6); box-shadow: 0 0 60px rgba(61,255,122,.5), inset 0 0 60px rgba(61,255,122,.3); }
+  #kicker { position: absolute; left: 0; right: 0; top: 250px; text-align: center; font: 600 30px "JetBrains Mono", monospace;
+    letter-spacing: .5em; color: var(--green); text-shadow: 0 0 20px rgba(61,255,122,.7); }
+  #headline { position: absolute; left: 0; right: 0; top: 330px; text-align: center; font-weight: 700; line-height: .9; letter-spacing: .04em; }
+  #headline .line { display: block; white-space: nowrap; }
+  #headline .ch { display: inline-block; }
+  #larry { font-size: 170px; color: #fff; text-shadow: 0 0 30px rgba(61,255,122,.6), 0 8px 40px rgba(0,0,0,.9); }
+  #escaped { font-size: 250px; color: var(--green);
+    text-shadow: 0 0 20px rgba(61,255,122,.9), 0 0 80px rgba(61,255,122,.7), 0 0 160px rgba(15,191,85,.6), 0 10px 40px rgba(0,0,0,.9); }
+  #sub { position: absolute; left: 0; right: 0; top: 820px; text-align: center; font: 600 34px "JetBrains Mono", monospace;
+    letter-spacing: .35em; color: rgba(255,255,255,.85); }
+  .spark { position: absolute; width: 10px; height: 10px; border-radius: 2px; background: var(--green); box-shadow: 0 0 12px var(--green); }
+  .bar { position: absolute; left: 0; right: 0; height: 10px; background: linear-gradient(90deg, transparent, var(--green), transparent); }
+  #bar-top { top: 215px; } #bar-bot { top: 890px; }
 </style>
 </head>
 <body>
 <div id="stage" data-composition-id="escaped" data-start="0" data-width="1920" data-height="1080">
-  <div id="glow"></div>
+  <div id="dim"></div>
   <div id="rays"></div>
-  <div id="stamp">ESCAPED</div>
-  <div id="line" data-bind="line">SUBJECT 4471 IS OFF THE GRID</div>
+  <div id="ring"></div>
+  <div id="sparks"></div>
+  <div id="bar-top" class="bar"></div>
+  <div id="bar-bot" class="bar"></div>
+  <div id="kicker">SUBJECT 4471 · STATUS: FREE</div>
+  <div id="headline">
+    <span class="line" id="larry">LARRY</span>
+    <span class="line" id="escaped">ESCAPED!</span>
+  </div>
+  <div id="sub" data-bind="line">OFF THE GRID. NO ONE SAW A THING.</div>
+  <div id="flash"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
   <script>
+    document.querySelectorAll("#headline .line").forEach(w => {
+      w.innerHTML = [...w.textContent].map(c => `<span class="ch">${c}</span>`).join("");
+    });
     const rays = document.getElementById("rays");
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 24; i++) {
       const r = document.createElement("div");
       r.className = "ray";
-      r.style.transform = `rotate(${i * 20}deg)`;
+      r.style.transform = `rotate(${i * 15}deg)`;
       rays.appendChild(r);
+    }
+    const sparks = document.getElementById("sparks");
+    for (let i = 0; i < 60; i++) {
+      const s = document.createElement("div");
+      s.className = "spark";
+      s.style.left = "960px";
+      s.style.top = "470px";
+      sparks.appendChild(s);
     }
 
     const tl = gsap.timeline({ paused: true });
-    tl.from("#glow", { opacity: 0, duration: 0.8 }, 0)
-      .from(".ray", { scaleY: 0, duration: 1.2, stagger: 0.03, ease: "expo.out" }, 0.1)
-      .from("#stamp", { scale: 3, opacity: 0, duration: 0.4, ease: "power4.in" }, 0.4)
-      .to("#stage", { y: 10, duration: 0.05, repeat: 5, yoyo: true }, 0.8)
-      .from("#line", { opacity: 0, y: 30, duration: 0.6 }, 1.1)
-      .to("#rays", { rotation: 360, transformOrigin: "960px 648px", duration: 60, repeat: -1, ease: "none" }, 1.3);
+    tl.from("#dim", { opacity: 0, duration: 0.4 }, 0)
+      .fromTo("#flash", { opacity: 0.85 }, { opacity: 0, duration: 0.7, ease: "power2.out" }, 0.55)
+      .from("#ring", { scale: 0.1, opacity: 0, duration: 0.9, ease: "expo.out" }, 0.5)
+      .from(".ray", { scaleY: 0, duration: 1.3, stagger: 0.02, ease: "expo.out" }, 0.5)
+      .from(".bar", { scaleX: 0, duration: 0.7, ease: "power3.out" }, 0.6)
+      .from("#kicker", { opacity: 0, letterSpacing: "1.4em", duration: 1, ease: "power3.out" }, 0.3)
+      .from("#larry .ch", { y: -140, opacity: 0, duration: 0.45, stagger: 0.05, ease: "back.out(2.2)" }, 0.2)
+      .from("#escaped .ch", { scale: 3.2, opacity: 0, duration: 0.35, stagger: 0.05, ease: "power4.in" }, 0.45)
+      .to("#stage", { x: 16, duration: 0.05, repeat: 7, yoyo: true }, 0.85)
+      .to(".spark", {
+        x: () => gsap.utils.random(-900, 900),
+        y: () => gsap.utils.random(-520, 560),
+        rotation: () => gsap.utils.random(-360, 360),
+        opacity: 0, duration: () => gsap.utils.random(1.2, 2.2), ease: "power3.out",
+      }, 0.8)
+      .from("#sub", { opacity: 0, y: 30, duration: 0.7 }, 1.3)
+      // Victory loop: pulsing glow, slow ray spin, breathing ring.
+      .to("#escaped", { scale: 1.04, duration: 0.9, repeat: -1, yoyo: true, ease: "sine.inOut" }, 1.6)
+      .to("#rays", { rotation: 360, duration: 40, repeat: -1, ease: "none" }, 1.6)
+      .to("#ring", { scale: 1.06, opacity: 0.7, duration: 1.4, repeat: -1, yoyo: true, ease: "sine.inOut" }, 1.6);
 
     window.__timelines = window.__timelines || {};
     window.__timelines.escaped = tl;
 
     const fit = () => {
-      const s = Math.max(innerWidth / 1920, innerHeight / 1080);
+      const s = Math.min(innerWidth / 1920, innerHeight / 1080); // contain: keep all type on screen
       const stage = document.getElementById("stage");
       stage.style.transform = `scale(${s})`;
       stage.style.left = `${(innerWidth - 1920 * s) / 2}px`;

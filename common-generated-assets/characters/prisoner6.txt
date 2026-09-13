@@ -6,3 +6,4 @@ CHARACTER: Prisoner 6, "The Smuggler".
 A twitchy, rat-like smuggler in his 40s with a shaved head, shifty eyes and a pencil mustache. ORANGE prison jumpsuit with dozens of hidden pockets sewn inside, contraband peeking out (cigarettes, candy bars, a small screwdriver).
 Signature prop: jumpsuit flap opened to reveal the hidden stash.
 Head close-ups: shifty look over the shoulder, greedy grin, panicked.
+As generated: shaved head and pencil mustache, patched orange jumpsuit stuffed with cigarettes and candy bars, "PRISONER 6" stenciled on the back (the back view reads darker olive-brown).

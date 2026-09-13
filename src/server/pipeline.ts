@@ -18,8 +18,11 @@ export type StoryNode = {
   outcome: Outcome;
   failType?: "redetained" | "dead";
   summary: string;
-  clipUrl: string;
+  /** null in no-video mode: the client shows the scene text instead. */
+  clipUrl: string | null;
   loopUrl: string | null;
+  /** What the shot writer planned; shown as text in no-video mode. */
+  scene?: { summary: string; shotPrompt: string };
   lastFrameFile?: string;
 };
 
@@ -75,12 +78,12 @@ export function createSession() {
     environmentId: world.startEnvironment,
     direction: null,
     outcome: "intro",
-    summary: "The protagonist sits in his cell in Block A, planning his escape.",
+    summary: "Larry sits in his cell in Block A, planning his escape.",
     clipUrl: media.intro,
     loopUrl: media.introLoop,
   };
   nodes.set(root.id, root);
-  return { root, music: media.music };
+  return { root, music: media.music, thinkingLoop: media.thinkingLoop };
 }
 
 export const getNode = (id: string) => nodes.get(id);
@@ -150,8 +153,10 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   job.debug.plan = plan;
 
   // H3 clip
-  job.status = "generating-clip";
-  job.message = "Rolling camera…";
+  if (settings.liveVideo) {
+    job.status = "generating-clip";
+    job.message = "Rolling camera…";
+  }
   const node: StoryNode = {
     id: crypto.randomUUID(),
     parentId: from.id,
@@ -161,8 +166,9 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     outcome,
     failType: success ? undefined : diagnosis.failType,
     summary: plan.summary,
-    clipUrl: "/media/placeholder.mp4",
+    clipUrl: null,
     loopUrl: null,
+    scene: { summary: plan.summary, shotPrompt: plan.shotPrompt },
   };
 
   if (settings.liveVideo) {
@@ -172,10 +178,10 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   }
 
   // Idle loop on the closing close-up (success only)
-  if (outcome === "success") {
+  if (outcome === "success" && settings.liveVideo && node.lastFrameFile) {
     job.status = "generating-loop";
     job.message = "Finding his next move…";
-    if (settings.liveVideo && node.lastFrameFile) {
+    {
       const frame = await uploadFile(node.lastFrameFile);
       const loop = await generateVideo({
         task_type: "I2V",
@@ -185,8 +191,6 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
         durationSecs: LOOP_SECS,
       });
       node.loopUrl = loop.url;
-    } else {
-      node.loopUrl = "/media/placeholder.mp4";
     }
   }
 

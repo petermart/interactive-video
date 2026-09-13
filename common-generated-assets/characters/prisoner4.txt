@@ -6,3 +6,4 @@ CHARACTER: Prisoner 4, "The Boxer".
 A muscular boxer in his 30s with a flattened nose, cauliflower ears and cornrows. ORANGE prison jumpsuit tied at the waist over a sweat-stained white tank top.
 Signature prop: taped knuckles raised in a guard stance.
 Head close-ups: guard up, cocky smirk, bloodied determination.
+As generated: cornrows, bandaged nose, orange jumpsuit tied at the waist over a stained white tank top, taped hands, tan boxing-style boots.

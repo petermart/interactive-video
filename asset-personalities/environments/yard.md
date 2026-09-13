@@ -1,7 +1,7 @@
 # yard
 Outdoor exercise yard, weights, basketball hoop, chain-link fence, watchtower overhead.
 
-**Security:** high · **Steps to nearest exit:** 1 · **Neighbors:** hall-main, workshop, perimeter-fence
+**Security:** high · **Steps to nearest exit:** 1 · **Neighbors:** hall-main, workshop, perimeter-fence, guard-tower
 
 ## Personality
 Open air, open sky, open danger. Freedom is visible but out of reach.
@@ -26,6 +26,7 @@ King Vargas, Knuckles, Sarge Whitaker, Big Oso, Aces
 ## Ways in and out
 - Gate → workshop
 - Fence line → perimeter-fence
+- Stairwell door → guard-tower
 - Double doors → hall-main
 
 ## Clever ideas that should score high innovation

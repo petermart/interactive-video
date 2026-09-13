@@ -6,3 +6,4 @@ CHARACTER: Prisoner 8, "The Kitchen King".
 A flamboyant kitchen worker in his 30s with a hairnet over a tall pompadour and a huge gap-toothed grin. White apron over an ORANGE prison jumpsuit.
 Signature prop: a giant stainless-steel ladle.
 Head close-ups: theatrical delight, mock outrage, whispering a secret.
+As generated: tall brown pompadour under a hairnet, black glasses, gap-toothed grin, white apron over an orange jumpsuit with "PRISONER 8" stenciled on the back, orange work gloves, oversized steel ladle over his shoulder.

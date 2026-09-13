@@ -6,3 +6,4 @@ CHARACTER: Guard 8, "The Riot Brute".
 A massive bald riot-squad officer with a thick neck and a scar across his scalp, in full black tactical riot armor. Scratched helmet with the visor flipped up.
 Signature prop: a transparent riot shield and a stun baton.
 Head close-ups: snarl, emotionless stare, charging roar.
+As generated: bald with a scalp scar, full black riot armor with "GUARD 8" printed on the chest plate, helmet with clear flip-up visor, transparent riot shield and black stun baton.

@@ -6,3 +6,4 @@ CHARACTER: Guard 10, "The Night Shift".
 A lanky, exhausted night-shift guard in his 30s with messy hair, heavy eye bags and stubble. Wrinkled navy uniform with the collar undone.
 Signature prop: a long black flashlight and a dented coffee thermos.
 Head close-ups: half-asleep, flashlight-sweep squint, jolted awake.
+As generated: messy brown hair and stubble, wears an unzipped navy guard jacket over a black t-shirt with dark trousers and boots; flashlight in one hand, steel thermos in the other.

@@ -60,6 +60,8 @@ Rules:
 - For a FAILURE, end on the consequence (tackled and cuffed / collapsed), no close-up requirement.
 - For the FINAL ESCAPE, end on a triumphant wide shot outside the prison.
 - shotPrompt max 2500 characters. Plain visual language, no dialogue text on screen.
+- shotPrompt must end with a sound line: punchy sound effects and foley matched to the action in each shot (footsteps, impacts, metal clanks, alarms, breathing), followed by "No music." (the website plays its own soundtrack).
+- loopPrompt is a silent visual loop: it must include "No music, no sound effects, no foley."
 - loopPrompt: a prompt for a seamless 4-second idle loop of the protagonist's close-up in the new environment: breathing, blinking, eyes darting, flickering practical light, nearly static camera.
 
 ${bible()}

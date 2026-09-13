@@ -1,7 +1,7 @@
 # perimeter-fence
 Double razor-wire perimeter fence, guard tower, searchlights, dogs. Exit candidate.
 
-**Security:** extreme · **Steps to nearest exit:** 0 (this is an exit candidate) · **Neighbors:** yard, rooftop
+**Security:** extreme · **Steps to nearest exit:** 0 (this is an exit candidate) · **Neighbors:** yard, rooftop, guard-tower
 
 ## Personality
 The final wall. Two fences, a tower and a dog between Larry and the forest.
@@ -26,6 +26,7 @@ None
 
 ## Ways in and out
 - From yard
+- Catwalk from guard-tower
 - From rooftop via power line
 - Fence gap → FOREST (exit)
 

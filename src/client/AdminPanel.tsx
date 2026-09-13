@@ -103,11 +103,13 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
           <div className="mt-4 space-y-2 border-t border-white/10 pt-3">
             <Toggle label="Live LLM (GMI)" checked={settings.liveLLM} onChange={v => save({ liveLLM: v })} />
             <Toggle
-              label="Live Video (MachGen, spends credits)"
-              checked={settings.liveVideo}
-              onChange={v => save({ liveVideo: v })}
-              danger
+              label="No video generation (text only)"
+              checked={!settings.liveVideo}
+              onChange={v => save({ liveVideo: !v })}
             />
+            {settings.liveVideo && (
+              <div className="text-xs text-siren-red">Video generation ON: each step spends MachGen credits.</div>
+            )}
             <label className="block text-white/70">
               LLM model
               <input

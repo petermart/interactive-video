@@ -75,9 +75,13 @@ export const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.ma
 /** Intro assets fall back to the placeholder clip until the real ones are generated. */
 export function introMedia() {
   const pick = (path: string) => (existsSync(`${MEDIA_DIR}/${path}`) ? `/media/${path}` : "/media/placeholder.mp4");
+  const intro = pick("intro/intro.mp4");
   return {
-    intro: pick("intro/intro.mp4"),
-    introLoop: pick("intro/intro-loop.mp4"),
+    intro,
+    // The intro is generated as a seamless loop, so it doubles as its own idle loop.
+    introLoop: existsSync(`${MEDIA_DIR}/intro/intro-loop.mp4`) ? "/media/intro/intro-loop.mp4" : intro,
+    // Silent macro loop of Larry deliberating; the idle background whenever a step has no loop of its own.
+    thinkingLoop: existsSync(`${MEDIA_DIR}/intro/larry-thinking.mp4`) ? "/media/intro/larry-thinking.mp4" : intro,
     music: existsSync(`${MEDIA_DIR}/music/loop.mp3`) ? "/media/music/loop.mp3" : null,
   };
 }

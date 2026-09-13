@@ -3,3 +3,4 @@ Anime background art, 16:9, cinematic establishing plate inside a gritty modern 
 ENVIRONMENT: Prison rooftop at night (possible exit).
 A flat gravel rooftop with HVAC units, vent stacks, a roof hatch and a skylight, antenna masts, and razor wire along the edge. Sweeping searchlight beams cut through haze, city lights glowing orange on the horizon beyond the perimeter fence. A power line runs from the roof edge toward the outer wall.
 Traversable paths to show: roof hatch down to the cell block, duct exit, warden's office window below, power line toward the perimeter fence.
+As generated: gravel roof with rusty HVAC units, vent stacks, skylight hatches, an antenna mast, three searchlight towers, a street lamp, razor wire along the edge, power lines on wooden poles, and city lights on the horizon.
