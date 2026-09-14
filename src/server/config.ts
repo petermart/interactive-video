@@ -36,6 +36,8 @@ export type Settings = {
   promptsTillSuccess: number; // 1-20
   liveLLM: boolean;
   liveVideo: boolean;
+  /** Skip generating a per-step idle loop; always idle on the pre-made "Larry thinking" ultra macro loop. */
+  constantThink: boolean;
   /** LLM 1 ("Analyzing escape plan"): speed matters most. */
   analysisModel: LlmModelId;
   /** LLM 2 (shot writer): quality of the H3 prompt matters more. */
@@ -50,6 +52,7 @@ const defaults: Settings = {
   promptsTillSuccess: 6,
   liveLLM: false,
   liveVideo: false,
+  constantThink: true,
   analysisModel: "google/gemini-3.5-flash-lite",
   writerModel: "google/gemini-3.8-flash",
 };
@@ -73,6 +76,7 @@ export async function updateSettings(patch: Partial<Settings>) {
   next.promptsTillSuccess = clamp(Math.round(Number(next.promptsTillSuccess)), 1, 20);
   next.liveLLM = Boolean(next.liveLLM);
   next.liveVideo = Boolean(next.liveVideo);
+  next.constantThink = Boolean(next.constantThink);
   settings = next;
   await Bun.write(SETTINGS_FILE, JSON.stringify(settings, null, 2));
   return settings;

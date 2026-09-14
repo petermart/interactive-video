@@ -12,6 +12,30 @@ const MUSIC_VOLUME = 0.35;
 /** The step being generated, remembered across reloads so leaving the page doesn't lose it. */
 const PENDING_KEY = "prison-escape:pending-job";
 type Pending = { jobId: string; fromNodeId: string; rootId: string };
+/** Resolves once the tab is visible (immediately if it already is). */
+const untilVisible = () =>
+  new Promise<void>(resolve => {
+    if (!document.hidden) return resolve();
+    const onChange = () => {
+      if (document.hidden) return;
+      document.removeEventListener("visibilitychange", onChange);
+      resolve();
+    };
+    document.addEventListener("visibilitychange", onChange);
+  });
+
+/** Sleeps, but wakes early when the tab becomes visible so a backgrounded tab catches up immediately. */
+const nap = (ms: number) =>
+  new Promise<void>(resolve => {
+    const done = () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    document.addEventListener("visibilitychange", done);
+  });
+
 const readPending = (): Pending | null => {
   try {
     return JSON.parse(localStorage.getItem(PENDING_KEY) ?? "null");
@@ -29,6 +53,8 @@ type Phase ="start" | "intro" | "idle" | "working" | "clip" | "scene" | "failed"
 
 export function App() {
   const [phase, setPhase] = useState<Phase>("start");
+  const phaseRef = useRef(phase);
+  phaseRef.current = phase;
   const [root, setRoot] = useState<StoryNode | null>(null);
   const [music, setMusic] = useState<string | null>(null);
   const [thinkingLoop, setThinkingLoop] = useState<string | null>(null);
@@ -57,6 +83,17 @@ export function App() {
         else writePending(null);
       }
     });
+  }, []);
+
+  // Browsers pause or defer media in background tabs; restart whatever should be playing when the viewer returns.
+  useEffect(() => {
+    const onVisible = () => {
+      const v = videoRef.current;
+      if (document.hidden || !v || !v.src || !v.paused || v.ended) return;
+      if (["intro", "idle", "working", "clip", "scene"].includes(phaseRef.current)) v.play().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
   const playVideo = (src: string | null, loop: boolean) => {
@@ -132,7 +169,7 @@ export function App() {
     let misses = 0;
     try {
       while (true) {
-        await new Promise(r => setTimeout(r, 700));
+        await nap(700);
         let job: Job;
         try {
           job = await api.job(jobId);
@@ -143,6 +180,9 @@ export function App() {
         }
         setStatus(job.message);
         if (job.debug) setLastDebug(job.debug);
+        // The server keeps generating while the tab is in the background; hold the result until the
+        // viewer is back so the clip (or the 15s scene text) isn't played to an empty, throttled tab.
+        if (["rejected", "error", "done"].includes(job.status)) await untilVisible();
         if (job.status === "rejected") {
           writePending(null);
           flash(job.message);

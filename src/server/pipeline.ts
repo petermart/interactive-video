@@ -231,7 +231,11 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   }
 
   // Idle loop on the closing close-up (success only)
-  if (outcome === "success" && settings.liveVideo && node.lastFrameFile) {
+  // Constant think: no per-step loop; the client idles on the fixed "Larry thinking" macro loop instead.
+  if (outcome === "success" && settings.liveVideo && settings.constantThink) {
+    logEvent({ kind: "job", label: "idle loop skipped (constant think)", response: { saved: "~$0.14 and ~9s" } });
+  }
+  if (outcome === "success" && settings.liveVideo && !settings.constantThink && node.lastFrameFile) {
     setJob(job, "generating-loop", "Finding his next move…");
     {
       const frame = await uploadFile(node.lastFrameFile);

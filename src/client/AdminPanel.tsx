@@ -107,6 +107,11 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
               checked={!settings.liveVideo}
               onChange={v => save({ liveVideo: !v })}
             />
+            <Toggle
+              label="Constant think (reuse Larry macro loop)"
+              checked={settings.constantThink}
+              onChange={v => save({ constantThink: v })}
+            />
             {settings.liveVideo && (
               <div className="text-xs text-siren-red">Video generation ON: each step spends MachGen credits.</div>
             )}

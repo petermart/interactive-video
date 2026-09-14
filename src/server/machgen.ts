@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { CACHE_DIR, keys, ROOT } from "./config";
 import { logEvent, traced } from "./db";
+import { isRetryableStatus, RetryableHttpError, withRetry } from "./net";
 
 const API = "https://api.machgen.ai/api/v0";
 const auth = { Authorization: `Bearer ${keys.machgen}` };
@@ -49,11 +50,12 @@ No music.`;
       const submitted = await submit.json();
       if (!submit.ok) throw new Error(`MachGen submit ${submit.status}: ${JSON.stringify(submitted).slice(0, 300)}`);
 
+      // From here on the clip is paid for and generating on MachGen: network blips must not abandon it.
       const taskId: string = submitted.task_id;
       let task: any;
       while (true) {
         await Bun.sleep(1500);
-        task = await (await fetch(`${API}/tasks/${taskId}`, { headers: auth })).json();
+        task = await withRetry(`poll task ${taskId}`, () => getJson(`${API}/tasks/${taskId}`), 8);
         if (task.status === "COMPLETED") break;
         if (task.status === "FAILED" || task.status === "CANCELLED") {
           throw new Error(`MachGen task ${taskId} ${task.status}: ${task.error_msg ?? "unknown error"}`);
@@ -61,7 +63,12 @@ No music.`;
       }
 
       const file = `${CACHE_DIR}/${taskId}.mp4`;
-      await Bun.write(file, await fetch(`${API}/assets/${taskId}`, { headers: auth }));
+      const bytes = await withRetry(`download ${taskId}`, async () => {
+        const res = await fetch(`${API}/assets/${taskId}`, { headers: auth, signal: AbortSignal.timeout(120_000) });
+        if (!res.ok) throw isRetryableStatus(res.status) ? new RetryableHttpError(`download ${res.status}`) : new Error(`download ${res.status}`);
+        return res.arrayBuffer();
+      });
+      await Bun.write(file, bytes);
       return {
         taskId,
         file,
@@ -73,17 +80,28 @@ No music.`;
   );
 }
 
+async function getJson(url: string) {
+  const res = await fetch(url, { headers: auth, signal: AbortSignal.timeout(30_000) });
+  if (isRetryableStatus(res.status)) throw new RetryableHttpError(`${url} ${res.status}`);
+  return res.json();
+}
+
 /** Uploads a local file and returns the `@input/...` reference usable in src_image_urls. */
 export async function uploadFile(path: string) {
   // Response: {"artifact_path": "<account>/<id>__<name>", ...}; generate requests reference it as @input/<path>.
-  return traced("upload", `upload ${path.split(/[\/]/).pop()}`, { path }, async () => {
-    const form = new FormData();
-    form.append("file", Bun.file(path));
-    const res = await fetch(`${API}/upload`, { method: "POST", headers: auth, body: form });
-    const body = await res.json();
-    if (!res.ok || !body.artifact_path) throw new Error(`MachGen upload ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
-    return `@input/${body.artifact_path}`;
-  });
+  // Uploads are free and a duplicate upload is harmless, so dropped sockets are retried.
+  const name = path.split(/[\\/]/).pop();
+  return traced("upload", `upload ${name}`, { path }, () =>
+    withRetry(`upload ${name}`, async () => {
+      const form = new FormData();
+      form.append("file", Bun.file(path));
+      const res = await fetch(`${API}/upload`, { method: "POST", headers: auth, body: form, signal: AbortSignal.timeout(60_000) });
+      if (isRetryableStatus(res.status)) throw new RetryableHttpError(`MachGen upload ${res.status}`);
+      const body = await res.json();
+      if (!res.ok || !body.artifact_path) throw new Error(`MachGen upload ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
+      return `@input/${body.artifact_path}`;
+    }),
+  );
 }
 
 const uploadedAssets = new Map<string, Promise<string>>();

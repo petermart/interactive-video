@@ -1,5 +1,6 @@
 import { keys } from "./config";
 import { traced } from "./db";
+import { isRetryableStatus, RetryableHttpError, withRetry } from "./net";
 
 const BASE = "https://api.gmi-serving.com/v1";
 
@@ -18,18 +19,26 @@ export async function chatJSON<T>(model: string, system: string, user: string, l
     "llm",
     `${label} · ${model}`,
     request,
-    async () => {
-      const res = await fetch(`${BASE}/chat/completions`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${keys.gmi}`, "Content-Type": "application/json" },
-        body: JSON.stringify(request),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(`GMI ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
-      const text: string = body.choices?.[0]?.message?.content ?? "";
-      const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as T;
-      return { parsed, usage: body.usage };
-    },
+    // LLM calls cost fractions of a cent, so retrying a dropped socket or 5xx is worth it.
+    () =>
+      withRetry(
+        `${label} · ${model}`,
+        async () => {
+          const res = await fetch(`${BASE}/chat/completions`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${keys.gmi}`, "Content-Type": "application/json" },
+            body: JSON.stringify(request),
+            signal: AbortSignal.timeout(60_000),
+          });
+          if (isRetryableStatus(res.status)) throw new RetryableHttpError(`GMI ${res.status}`);
+          const body = await res.json();
+          if (!res.ok) throw new Error(`GMI ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
+          const text: string = body.choices?.[0]?.message?.content ?? "";
+          const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as T;
+          return { parsed, usage: body.usage };
+        },
+        3,
+      ),
     { summarize: r => r },
   );
   return parsed;

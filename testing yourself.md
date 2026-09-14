@@ -47,6 +47,7 @@ Open **http://localhost:3000** and click **BEGIN**. Browsers only allow sound af
 | **Prompts till success** | Roughly how many successful steps until Larry can escape |
 | **Live LLM (GMI)** | Off = mock responses (free). On = real Gemini calls (~$0.001 each) |
 | **No video generation (text only)** | On = shows the planned scene as text for 15s instead of a clip (free). Off = real MachGen clips (**spends credits**) |
+| **Constant think** | On (default) = while waiting for the next action, always show the pre-made ultra macro "Larry thinking" loop; no per-step idle loop is generated. Off = generate a fresh 4s idle loop after each successful clip (~$0.14, ~9s) |
 | **Analysis model** | LLM 1, "Analyzing escape plan": Gemini 3.1 Flash-Lite (~2s), Gemini 3.5 Flash-Lite (~2s, default), Gemini 3.8 Flash (~6s, deep reasoning) |
 | **Shot writer model** | LLM 2, writes the H3 video prompt. Same options; Gemini 3.8 Flash gives richer shot lists |
 
@@ -55,7 +56,7 @@ Open **http://localhost:3000** and click **BEGIN**. Browsers only allow sound af
 1. **Free UI test:** Live LLM off, No video generation on. Type anything. "Grow wings" gets rejected; long, clever ideas succeed.
 2. **LLM test:** turn **Live LLM on**. You get real judgments and shot lists as text. Costs fractions of a cent.
 3. **Video test:** turn **No video generation off**. Each action now generates real clips:
-   - Success: 15s R2V clip (~$0.75) + 4s idle loop (~$0.14) ≈ **$0.89**
+   - Success: 15s R2V clip (~$0.75), plus a 4s idle loop (~$0.14) only if **Constant think** is off
    - Failure: 15s clip only ≈ **$0.75**
    - Watch the terminal: every MachGen submit logs its estimated cost.
 4. Check your MachGen balance for free:

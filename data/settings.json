@@ -5,6 +5,7 @@
   "promptsTillSuccess": 3,
   "liveLLM": true,
   "liveVideo": true,
+  "constantThink": true,
   "analysisModel": "google/gemini-3.5-flash-lite",
   "writerModel": "google/gemini-3.5-flash-lite"
 }
