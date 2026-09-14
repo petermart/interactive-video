@@ -2,7 +2,8 @@ import { serve } from "bun";
 import { existsSync } from "node:fs";
 import index from "./index.html";
 import { getSettings, MEDIA_DIR, ROOT, updateSettings } from "./server/config";
-import { createSession, getJob, startDirection } from "./server/pipeline";
+import { jobEvents, looseEvents, recentJobs } from "./server/db";
+import { createSession, getJob, getNode, startDirection } from "./server/pipeline";
 
 /** Serves a file from a base directory, refusing path traversal. */
 function staticFrom(base: string, prefix: string) {
@@ -30,6 +31,16 @@ const server = serve({
     "/api/session": {
       POST: () => Response.json(createSession()),
     },
+
+    // Resume a node after a page reload (e.g. to replay a step that finished while the tab was closed).
+    "/api/node/:id": req => {
+      const node = getNode(req.params.id);
+      return node ? Response.json(node) : Response.json({ error: "Unknown node" }, { status: 404 });
+    },
+
+    // Debug history (SQLite): recent jobs, then every event for one job.
+    "/api/debug/jobs": () => Response.json({ jobs: recentJobs(50), other: looseEvents(30) }),
+    "/api/debug/jobs/:id": req => Response.json({ events: jobEvents(req.params.id) }),
 
     "/api/direct": {
       POST: async req => {

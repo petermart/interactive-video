@@ -47,7 +47,8 @@ Open **http://localhost:3000** and click **BEGIN**. Browsers only allow sound af
 | **Prompts till success** | Roughly how many successful steps until Larry can escape |
 | **Live LLM (GMI)** | Off = mock responses (free). On = real Gemini calls (~$0.001 each) |
 | **No video generation (text only)** | On = shows the planned scene as text for 15s instead of a clip (free). Off = real MachGen clips (**spends credits**) |
-| **LLM model** | GMI model ID, default `google/gemini-3.8-flash` |
+| **Analysis model** | LLM 1, "Analyzing escape plan": Gemini 3.1 Flash-Lite (~2s), Gemini 3.5 Flash-Lite (~2s, default), Gemini 3.8 Flash (~6s, deep reasoning) |
+| **Shot writer model** | LLM 2, writes the H3 video prompt. Same options; Gemini 3.8 Flash gives richer shot lists |
 
 ## 5. Suggested test flow
 
@@ -62,7 +63,18 @@ Open **http://localhost:3000** and click **BEGIN**. Browsers only allow sound af
    bun -e "const k=require('./keys.json');fetch('https://api.machgen.ai/api/v0/billing/account',{headers:{Authorization:'Bearer '+k.machgen}}).then(r=>r.json()).then(b=>console.log('$'+(b.balance_micros/1e6).toFixed(2)))"
    ```
 
-## 6. Asset scripts (all spend credits)
+## 6. Debug history (☰ button, top right)
+
+Every step is logged to `data/debug.sqlite` (gitignored): directions, both LLM calls (full prompts, JSON output, latency), the outcome decision, reference uploads, MachGen generations (request body, task timings, estimated cost), status changes and errors. Click a step to expand its events, and click an event to see its request and response.
+
+Query it directly too:
+```bash
+bun -e "import {Database} from 'bun:sqlite'; console.table(new Database('data/debug.sqlite').query('SELECT kind,label,duration_ms,cost_usd FROM events ORDER BY id DESC LIMIT 20').all())"
+```
+
+If you leave or reload the page while a step is generating, the start button shows **RESUME** and picks the step back up. The server keeps generating either way.
+
+## 7. Asset scripts (all spend credits)
 
 | Command | Makes | Cost |
 |---|---|---|
@@ -71,7 +83,7 @@ Open **http://localhost:3000** and click **BEGIN**. Browsers only allow sound af
 | `bun scripts/gen-intro.ts larry-thinking keyframe\|video` | Silent 4s "Larry thinking" idle loop | ~$0.08 + ~$0.14 |
 | `bun scripts/gen-music.ts` | 30s seamless music loop → `media/music/loop.mp3` | ~$0.20 |
 
-## 7. Where things live
+## 8. Where things live
 
 - `master-plan.md`: the full design and TODOs
 - `data/world.json`: style rules, characters, environments (with image paths), map adjacency

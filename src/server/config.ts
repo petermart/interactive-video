@@ -26,7 +26,7 @@ export type World = {
 };
 export const world = worldJson as World;
 
-import { CREATIVITY_POINT_OPTIONS, OUTCOME_MODES, type OutcomeMode } from "./constants";
+import { CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, type LlmModelId, type OutcomeMode } from "./constants";
 export { CREATIVITY_POINT_OPTIONS, OUTCOME_MODES, type OutcomeMode };
 
 export type Settings = {
@@ -36,7 +36,10 @@ export type Settings = {
   promptsTillSuccess: number; // 1-20
   liveLLM: boolean;
   liveVideo: boolean;
-  llmModel: string;
+  /** LLM 1 ("Analyzing escape plan"): speed matters most. */
+  analysisModel: LlmModelId;
+  /** LLM 2 (shot writer): quality of the H3 prompt matters more. */
+  writerModel: LlmModelId;
 };
 
 const SETTINGS_FILE = `${ROOT}data/settings.json`;
@@ -47,12 +50,14 @@ const defaults: Settings = {
   promptsTillSuccess: 6,
   liveLLM: false,
   liveVideo: false,
-  llmModel: "google/gemini-3.8-flash",
+  analysisModel: "google/gemini-3.5-flash-lite",
+  writerModel: "google/gemini-3.8-flash",
 };
 
 let settings: Settings = defaults;
 if (existsSync(SETTINGS_FILE)) {
-  settings = { ...defaults, ...(await Bun.file(SETTINGS_FILE).json()) };
+  const { llmModel: _legacy, ...saved } = await Bun.file(SETTINGS_FILE).json();
+  settings = { ...defaults, ...saved };
 }
 
 export const getSettings = () => settings;
@@ -60,6 +65,9 @@ export const getSettings = () => settings;
 export async function updateSettings(patch: Partial<Settings>) {
   const next = { ...settings, ...patch };
   if (!OUTCOME_MODES.includes(next.outcomeMode)) next.outcomeMode = settings.outcomeMode;
+  const validModel = (id: string) => LLM_MODEL_OPTIONS.some(m => m.id === id);
+  if (!validModel(next.analysisModel)) next.analysisModel = settings.analysisModel;
+  if (!validModel(next.writerModel)) next.writerModel = settings.writerModel;
   if (!CREATIVITY_POINT_OPTIONS.includes(next.creativityPoints as never)) next.creativityPoints = settings.creativityPoints;
   next.successProbability = clamp(Math.round(Number(next.successProbability)), 0, 100);
   next.promptsTillSuccess = clamp(Math.round(Number(next.promptsTillSuccess)), 1, 20);

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CREATIVITY_POINT_OPTIONS, OUTCOME_MODES, type OutcomeMode } from "../server/constants";
+import { CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, type LlmModelId, type OutcomeMode } from "../server/constants";
 import { api, type Job, type Settings } from "./api";
 
 const MODE_HELP: Record<OutcomeMode, string> = {
@@ -110,15 +110,16 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
             {settings.liveVideo && (
               <div className="text-xs text-siren-red">Video generation ON: each step spends MachGen credits.</div>
             )}
-            <label className="block text-white/70">
-              LLM model
-              <input
-                value={settings.llmModel}
-                onChange={e => setSettings({ ...settings, llmModel: e.target.value })}
-                onBlur={e => save({ llmModel: e.target.value })}
-                className="mt-1 w-full rounded border border-white/15 bg-white/5 px-2 py-1 text-white"
-              />
-            </label>
+            <ModelSelect
+              label="Analysis model (escape plan)"
+              value={settings.analysisModel}
+              onChange={id => save({ analysisModel: id })}
+            />
+            <ModelSelect
+              label="Shot writer model (video prompt)"
+              value={settings.writerModel}
+              onChange={id => save({ writerModel: id })}
+            />
           </div>
 
           {lastDebug && (
@@ -150,6 +151,25 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
         </div>
       )}
     </div>
+  );
+}
+
+function ModelSelect(props: { label: string; value: LlmModelId; onChange: (id: LlmModelId) => void }) {
+  return (
+    <label className="block text-white/70">
+      {props.label}
+      <select
+        value={props.value}
+        onChange={e => props.onChange(e.target.value as LlmModelId)}
+        className="mt-1 w-full rounded border border-white/15 bg-black px-2 py-1 text-white"
+      >
+        {LLM_MODEL_OPTIONS.map(m => (
+          <option key={m.id} value={m.id}>
+            {m.label} · {m.speed} · {m.reasoning} reasoning
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

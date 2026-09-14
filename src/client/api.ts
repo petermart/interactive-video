@@ -18,5 +18,6 @@ export const api = {
     fetch("/api/direct", { method: "POST", body: JSON.stringify({ fromNodeId, direction }) }).then(r =>
       json<{ jobId: string }>(r),
     ),
+  node: (id: string) => fetch(`/api/node/${id}`).then(r => json<StoryNode>(r)),
   job: (id: string) => fetch(`/api/job/${id}`).then(r => json<Job>(r)),
 };

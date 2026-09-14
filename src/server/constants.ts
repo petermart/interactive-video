@@ -14,3 +14,14 @@ export const CREATIVITY_POINT_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 40, 50] as co
 
 /** No-video mode: how long the scene text stays up in place of a step clip (matches the 15s clips). */
 export const SCENE_TEXT_SECS = 15;
+
+/**
+ * LLM choices for the admin dropdowns. Speeds measured 2026-09-13 on GMI with the real diagnostic prompt
+ * (~2.2k tokens in); the shot writer returns longer output, so expect it to take somewhat longer.
+ */
+export const LLM_MODEL_OPTIONS = [
+  { id: "google/gemini-3.1-flash-lite-preview", label: "Gemini 3.1 Flash-Lite", speed: "~2s", reasoning: "light" },
+  { id: "google/gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite", speed: "~2s", reasoning: "light+" },
+  { id: "google/gemini-3.8-flash", label: "Gemini 3.8 Flash", speed: "~6s", reasoning: "deep" },
+] as const;
+export type LlmModelId = (typeof LLM_MODEL_OPTIONS)[number]["id"];

@@ -1,4 +1,5 @@
 import { clamp, getSettings, introMedia, world, type OutcomeMode, type Settings } from "./config";
+import { jobContext, loadJob, loadNode, logEvent, saveJob, saveNode } from "./db";
 import { chatJSON } from "./gmi";
 import { existsSync } from "node:fs";
 import { generateVideo, lastFrame, MAX_IMAGE_REFS, uploadAsset, uploadFile, type VideoRequest } from "./machgen";
@@ -53,6 +54,8 @@ export type JobStatus = "diagnosing" | "writing" | "generating-clip" | "generati
 
 export type Job = {
   id: string;
+  fromNodeId: string;
+  direction: string;
   status: JobStatus;
   message: string;
   node?: StoryNode;
@@ -67,8 +70,25 @@ export type Job = {
   };
 };
 
-const nodes = new Map<string, StoryNode>();
-const jobs = new Map<string, Job>();
+// Kept on globalThis so `bun --hot` reloads don't drop in-flight jobs, and mirrored to SQLite so a
+// server restart or page reload can still find finished steps.
+const state = ((globalThis as any).__prisonState ??= { nodes: new Map<string, StoryNode>(), jobs: new Map<string, Job>() }) as {
+  nodes: Map<string, StoryNode>;
+  jobs: Map<string, Job>;
+};
+const { nodes, jobs } = state;
+
+function putNode(node: StoryNode) {
+  nodes.set(node.id, node);
+  saveNode(node);
+}
+
+function setJob(job: Job, status: JobStatus, message: string) {
+  job.status = status;
+  job.message = message;
+  saveJob(job, job.fromNodeId, job.direction);
+  logEvent({ kind: "job", label: `status → ${status}`, response: message || undefined });
+}
 
 export function createSession() {
   const media = introMedia();
@@ -83,23 +103,44 @@ export function createSession() {
     clipUrl: media.intro,
     loopUrl: media.introLoop,
   };
-  nodes.set(root.id, root);
+  putNode(root);
+  logEvent({ kind: "job", label: "session started", response: { rootId: root.id, intro: root.clipUrl } });
   return { root, music: media.music, thinkingLoop: media.thinkingLoop };
 }
 
-export const getNode = (id: string) => nodes.get(id);
-export const getJob = (id: string) => jobs.get(id);
+export function getNode(id: string) {
+  const node = nodes.get(id) ?? loadNode<StoryNode>(id);
+  if (node) nodes.set(id, node);
+  return node;
+}
+
+export function getJob(id: string) {
+  const live = jobs.get(id);
+  if (live) return live;
+  const saved = loadJob<Job>(id);
+  // A job that was mid-flight when the server process died can't resume; report it instead of polling forever.
+  if (saved && !["done", "rejected", "error"].includes(saved.status)) {
+    saved.status = "error";
+    saved.message = "The server restarted while this step was generating. Please try again.";
+  }
+  return saved;
+}
 
 /** Starts the two-LLM + H3 pipeline for a direction. Returns immediately; poll the job. */
 export function startDirection(fromNodeId: string, direction: string) {
-  const from = nodes.get(fromNodeId);
+  const from = getNode(fromNodeId);
   if (!from) throw new Error("Unknown node");
-  const job: Job = { id: crypto.randomUUID(), status: "diagnosing", message: "Analyzing escape plan…" };
+  const clean = direction.trim().slice(0, 500);
+  const job: Job = { id: crypto.randomUUID(), fromNodeId, direction: clean, status: "diagnosing", message: "Analyzing escape plan…" };
   jobs.set(job.id, job);
-  runPipeline(job, from, direction.trim().slice(0, 500)).catch(err => {
-    console.error("[pipeline]", err);
-    job.status = "error";
-    job.message = String(err?.message ?? err);
+  jobContext.run({ jobId: job.id }, () => {
+    saveJob(job, fromNodeId, clean);
+    logEvent({ kind: "job", label: "direction received", request: { direction: clean, fromNodeId, settings: getSettings() } });
+    runPipeline(job, from, clean).catch(err => {
+      console.error("[pipeline]", err);
+      logEvent({ kind: "error", label: "pipeline failed", status: "error", response: String(err?.stack ?? err) });
+      setJob(job, "error", String(err?.message ?? err));
+    });
   });
   return job;
 }
@@ -121,12 +162,15 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   });
 
   // LLM 1: diagnostic
-  const diagnosis = settings.liveLLM
-    ? await chatJSON<Diagnosis>(diagnosticSystem(settings), context)
-    : mockDiagnosis(direction, settings);
+  let diagnosis: Diagnosis;
+  if (settings.liveLLM) {
+    diagnosis = await chatJSON<Diagnosis>(settings.analysisModel, diagnosticSystem(settings), context, "LLM 1 diagnostic");
+  } else {
+    diagnosis = mockDiagnosis(direction, settings);
+    logEvent({ kind: "llm", label: "LLM 1 diagnostic · mock", request: context, response: diagnosis });
+  }
   if (!diagnosis.allowed) {
-    job.status = "rejected";
-    job.message = diagnosis.rejectionReason || "That can't happen here. Try something else.";
+    setJob(job, "rejected", diagnosis.rejectionReason || "That can't happen here. Try something else.");
     return;
   }
 
@@ -138,10 +182,15 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
       (diagnosis.reachesExit && nextDepth >= 0.75 * settings.promptsTillSuccess));
   const outcome: Outcome = !success ? "fail" : isFinal ? "escaped" : "success";
   job.debug = { mode: settings.outcomeMode, innovation: diagnosis.innovation, chance, roll, isFinal, diagnosis };
+  logEvent({
+    kind: "decision",
+    label: `outcome → ${outcome}`,
+    request: { mode: settings.outcomeMode, innovation: diagnosis.innovation, succeeds: diagnosis.succeeds, chance, roll, depth: from.depth, promptsTillSuccess: settings.promptsTillSuccess },
+    response: { outcome, isFinal, verdictReason: diagnosis.verdictReason },
+  });
 
   // LLM 2: shot writer
-  job.status = "writing";
-  job.message = "Planning the shot…";
+  setJob(job, "writing", "Planning the shot…");
   const beat = success ? diagnosis.successBeat : diagnosis.failBeat;
   const writerInput = JSON.stringify({
     outcome: outcome === "fail" ? `FAILURE (${diagnosis.failType})` : outcome === "escaped" ? "FINAL ESCAPE" : "SUCCESS",
@@ -150,14 +199,17 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     currentEnvironment: from.environmentId,
     storySoFar: story,
   });
-  const plan = settings.liveLLM ? await chatJSON<ShotPlan>(writerSystem(), writerInput) : mockPlan(from, beat, outcome);
+  let plan: ShotPlan;
+  if (settings.liveLLM) {
+    plan = await chatJSON<ShotPlan>(settings.writerModel, writerSystem(), writerInput, "LLM 2 shot writer");
+  } else {
+    plan = mockPlan(from, beat, outcome);
+    logEvent({ kind: "llm", label: "LLM 2 shot writer · mock", request: writerInput, response: plan });
+  }
   job.debug.plan = plan;
 
   // H3 clip
-  if (settings.liveVideo) {
-    job.status = "generating-clip";
-    job.message = "Rolling camera…";
-  }
+  if (settings.liveVideo) setJob(job, "generating-clip", "Rolling camera…");
   const node: StoryNode = {
     id: crypto.randomUUID(),
     parentId: from.id,
@@ -180,8 +232,7 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
 
   // Idle loop on the closing close-up (success only)
   if (outcome === "success" && settings.liveVideo && node.lastFrameFile) {
-    job.status = "generating-loop";
-    job.message = "Finding his next move…";
+    setJob(job, "generating-loop", "Finding his next move…");
     {
       const frame = await uploadFile(node.lastFrameFile);
       const loop = await generateVideo({
@@ -195,10 +246,9 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     }
   }
 
-  nodes.set(node.id, node);
+  putNode(node);
   job.node = node;
-  job.status = "done";
-  job.message = "";
+  setJob(job, "done", "");
 }
 
 /**
@@ -281,7 +331,7 @@ function decideOutcome(settings: Settings, diagnosis: Diagnosis) {
 
 function storySoFar(node: StoryNode) {
   const chain: string[] = [];
-  for (let n: StoryNode | undefined = node; n; n = n.parentId ? nodes.get(n.parentId) : undefined) {
+  for (let n: StoryNode | undefined = node; n; n = n.parentId ? getNode(n.parentId) : undefined) {
     chain.unshift(n.direction ? `Viewer: "${n.direction}" -> ${n.summary}` : n.summary);
   }
   return chain;

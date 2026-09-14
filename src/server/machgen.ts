@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { CACHE_DIR, keys, ROOT } from "./config";
+import { logEvent, traced } from "./db";
 
 const API = "https://api.machgen.ai/api/v0";
 const auth = { Authorization: `Bearer ${keys.machgen}` };
@@ -32,39 +33,57 @@ No music.`;
   };
   // 480p pricing: T2V/I2V $0.035/s, R2V (reference images) $0.05/s.
   const rate = body.task_type === "R2V" ? 0.05 : 0.035;
-  console.log(`[machgen] ${body.task_type} ${durationSecs}s submit (~$${(durationSecs * rate).toFixed(2)}): ${req.prompt.slice(0, 80)}…`);
-  const submit = await fetch(`${API}/generate`, {
-    method: "POST",
-    headers: { ...auth, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const submitted = await submit.json();
-  if (!submit.ok) throw new Error(`MachGen submit ${submit.status}: ${JSON.stringify(submitted).slice(0, 300)}`);
+  const costUsd = Number((durationSecs * rate).toFixed(3));
+  console.log(`[machgen] ${body.task_type} ${durationSecs}s submit (~${costUsd.toFixed(2)}): ${req.prompt.slice(0, 80)}…`);
 
-  const taskId: string = submitted.task_id;
-  while (true) {
-    await Bun.sleep(1500);
-    const task = await (await fetch(`${API}/tasks/${taskId}`, { headers: auth })).json();
-    if (task.status === "COMPLETED") break;
-    if (task.status === "FAILED" || task.status === "CANCELLED") {
-      throw new Error(`MachGen task ${task.status}: ${task.error_msg ?? "unknown error"}`);
-    }
-  }
+  return traced(
+    "video",
+    `MiniMax-H3 ${body.task_type} ${durationSecs}s`,
+    body,
+    async () => {
+      const submit = await fetch(`${API}/generate`, {
+        method: "POST",
+        headers: { ...auth, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const submitted = await submit.json();
+      if (!submit.ok) throw new Error(`MachGen submit ${submit.status}: ${JSON.stringify(submitted).slice(0, 300)}`);
 
-  const file = `${CACHE_DIR}/${taskId}.mp4`;
-  await Bun.write(file, await fetch(`${API}/assets/${taskId}`, { headers: auth }));
-  return { taskId, file, url: `/media/cache/${taskId}.mp4` };
+      const taskId: string = submitted.task_id;
+      let task: any;
+      while (true) {
+        await Bun.sleep(1500);
+        task = await (await fetch(`${API}/tasks/${taskId}`, { headers: auth })).json();
+        if (task.status === "COMPLETED") break;
+        if (task.status === "FAILED" || task.status === "CANCELLED") {
+          throw new Error(`MachGen task ${taskId} ${task.status}: ${task.error_msg ?? "unknown error"}`);
+        }
+      }
+
+      const file = `${CACHE_DIR}/${taskId}.mp4`;
+      await Bun.write(file, await fetch(`${API}/assets/${taskId}`, { headers: auth }));
+      return {
+        taskId,
+        file,
+        url: `/media/cache/${taskId}.mp4`,
+        timings: { queue: task.queue_time_secs, generation: task.generation_time_secs, upload: task.upload_time_secs },
+      };
+    },
+    { costUsd },
+  );
 }
 
 /** Uploads a local file and returns the `@input/...` reference usable in src_image_urls. */
 export async function uploadFile(path: string) {
   // Response: {"artifact_path": "<account>/<id>__<name>", ...}; generate requests reference it as @input/<path>.
-  const form = new FormData();
-  form.append("file", Bun.file(path));
-  const res = await fetch(`${API}/upload`, { method: "POST", headers: auth, body: form });
-  const body = await res.json();
-  if (!res.ok || !body.artifact_path) throw new Error(`MachGen upload ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
-  return `@input/${body.artifact_path}`;
+  return traced("upload", `upload ${path.split(/[\/]/).pop()}`, { path }, async () => {
+    const form = new FormData();
+    form.append("file", Bun.file(path));
+    const res = await fetch(`${API}/upload`, { method: "POST", headers: auth, body: form });
+    const body = await res.json();
+    if (!res.ok || !body.artifact_path) throw new Error(`MachGen upload ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
+    return `@input/${body.artifact_path}`;
+  });
 }
 
 const uploadedAssets = new Map<string, Promise<string>>();
@@ -75,9 +94,11 @@ const uploadedAssets = new Map<string, Promise<string>>();
  */
 export function uploadAsset(repoPath: string) {
   let ref = uploadedAssets.get(repoPath);
-  if (!ref) {
+  if (ref) {
+    logEvent({ kind: "upload", label: `reuse cached ref ${repoPath.split("/").pop()}`, request: { repoPath } });
+  } else {
     ref = (async () => {
-      const jpeg = `${CACHE_DIR}/refs/${repoPath.replace(/[\/]/g, "__").replace(/.png$/i, ".jpg")}`;
+      const jpeg = `${CACHE_DIR}/refs/${repoPath.replace(/[\\/]/g, "__").replace(/\.png$/i, ".jpg")}`;
       mkdirSync(`${CACHE_DIR}/refs`, { recursive: true });
       if (!existsSync(jpeg)) {
         const proc = Bun.spawn(["ffmpeg", "-v", "error", "-y", "-i", `${ROOT}${repoPath}`, "-vf", "scale=1600:-2", "-q:v", "3", jpeg]);

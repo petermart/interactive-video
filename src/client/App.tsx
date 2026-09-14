@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AdminPanel } from "./AdminPanel";
+import { DebugPanel } from "./DebugPanel";
 import { GeneratingHud } from "./GeneratingHud";
 import { api, type Job, type StoryNode } from "./api";
 import { HyperFrame } from "./HyperFrame";
@@ -7,6 +8,22 @@ import { PromptBar } from "./PromptBar";
 import { SceneText } from "./SceneText";
 
 const MUSIC_VOLUME = 0.35;
+
+/** The step being generated, remembered across reloads so leaving the page doesn't lose it. */
+const PENDING_KEY = "prison-escape:pending-job";
+type Pending = { jobId: string; fromNodeId: string; rootId: string };
+const readPending = (): Pending | null => {
+  try {
+    return JSON.parse(localStorage.getItem(PENDING_KEY) ?? "null");
+  } catch {
+    return null;
+  }
+};
+const writePending = (p: Pending | null) => {
+  try {
+    p ? localStorage.setItem(PENDING_KEY, JSON.stringify(p)) : localStorage.removeItem(PENDING_KEY);
+  } catch {}
+};
 
 type Phase ="start" | "intro" | "idle" | "working" | "clip" | "scene" | "failed" | "escaped";
 
@@ -22,15 +39,23 @@ export function App() {
   const [status, setStatus] = useState("");
   const [toast, setToast] = useState("");
   const [lastDebug, setLastDebug] = useState<Job["debug"] | null>(null);
+  const [resume, setResume] = useState<Pending | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const musicRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
-    api.session().then(s => {
+    api.session().then(async s => {
       setRoot(s.root);
       setCurrent(s.root);
       setMusic(s.music);
       setThinkingLoop(s.thinkingLoop);
+      // A step was generating when the page was left: offer to pick it back up.
+      const pending = readPending();
+      if (pending) {
+        const job = await api.job(pending.jobId).catch(() => null);
+        if (job && job.status !== "rejected" && job.status !== "error") setResume(pending);
+        else writePending(null);
+      }
     });
   }, []);
 
@@ -42,12 +67,25 @@ export function App() {
     v.play().catch(() => {});
   };
 
-  const start = () => {
+  const start = async () => {
     if (!root) return;
     // Soundtrack sits under the clips' diegetic sound (clips are generated with "No music").
     if (musicRef.current) {
       musicRef.current.volume = MUSIC_VOLUME;
       musicRef.current.play().catch(() => {});
+    }
+    if (resume) {
+      const [from, savedRoot] = await Promise.all([api.node(resume.fromNodeId), api.node(resume.rootId)]).catch(() => [null, null]);
+      if (from) {
+        if (savedRoot) setRoot(savedRoot);
+        setCurrent(from);
+        setPhase("working");
+        playVideo(from.loopUrl ?? thinkingLoop, true);
+        pollJob(resume.jobId);
+        setResume(null);
+        return;
+      }
+      writePending(null);
     }
     playIntro(root);
   };
@@ -76,23 +114,44 @@ export function App() {
   };
 
   const direct = async (direction: string) => {
-    if (!current) return;
+    if (!current || !root) return;
     setPhase("working");
     setStatus("Analyzing escape plan…");
     try {
       const { jobId } = await api.direct(current.id, direction);
+      writePending({ jobId, fromNodeId: current.id, rootId: root.id });
+      await pollJob(jobId);
+    } catch (err) {
+      flash(`Something broke: ${(err as Error).message}`);
+      setPhase("idle");
+    }
+  };
+
+  /** Polls a job until it resolves. Tolerates brief network drops (e.g. the dev server hot-reloading). */
+  const pollJob = async (jobId: string) => {
+    let misses = 0;
+    try {
       while (true) {
         await new Promise(r => setTimeout(r, 700));
-        const job = await api.job(jobId);
+        let job: Job;
+        try {
+          job = await api.job(jobId);
+          misses = 0;
+        } catch (err) {
+          if (++misses > 60) throw err;
+          continue;
+        }
         setStatus(job.message);
         if (job.debug) setLastDebug(job.debug);
         if (job.status === "rejected") {
+          writePending(null);
           flash(job.message);
           setPhase("idle");
           return;
         }
         if (job.status === "error") throw new Error(job.message);
         if (job.status === "done" && job.node) {
+          writePending(null);
           setPlaying(job.node);
           if (job.node.clipUrl) {
             setPhase("clip");
@@ -104,6 +163,7 @@ export function App() {
         }
       }
     } catch (err) {
+      writePending(null);
       flash(`Something broke: ${(err as Error).message}`);
       setPhase("idle");
     }
@@ -143,7 +203,7 @@ export function App() {
             disabled={!root}
             className="absolute bottom-16 left-1/2 z-10 -translate-x-1/2 rounded-md border border-sodium/60 bg-black/60 px-10 py-4 font-display text-xl font-bold tracking-[0.4em] text-sodium backdrop-blur transition hover:bg-sodium hover:text-black"
           >
-            BEGIN
+            {resume ? "RESUME" : "BEGIN"}
           </button>
         </div>
       )}
@@ -200,6 +260,7 @@ export function App() {
         </div>
       )}
 
+      <DebugPanel />
       <AdminPanel lastDebug={lastDebug} />
 
       {phase !== "start" && phase !== "failed" && phase !== "escaped" && (
