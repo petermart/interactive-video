@@ -1,6 +1,7 @@
 import { clamp, getSettings, introMedia, world, type OutcomeMode, type Settings } from "./config";
 import { chatJSON } from "./gmi";
-import { generateVideo, lastFrame, MAX_IMAGE_REFS, uploadFile, type VideoRequest } from "./machgen";
+import { existsSync } from "node:fs";
+import { generateVideo, lastFrame, MAX_IMAGE_REFS, uploadAsset, uploadFile, type VideoRequest } from "./machgen";
 import { diagnosticSystem, writerSystem } from "./prompts";
 
 /** Step clips play out the viewer's action; loops idle on the protagonist's close-up. */
@@ -224,19 +225,30 @@ export function selectReferences(plan: ShotPlan, hasPreviousFrame: boolean) {
   return { refs, cast };
 }
 
-async function buildClipRequest(plan: ShotPlan, from: StoryNode): Promise<VideoRequest> {
-  const previousFrame = from.lastFrameFile ? await uploadFile(from.lastFrameFile) : null;
+/** The intro starts and ends on this keyframe, so it stands in for the intro's last frame. */
+const INTRO_LAST_FRAME = "common-generated-assets/videos/intro-keyframe.png";
+
+export async function buildClipRequest(plan: ShotPlan, from: StoryNode): Promise<VideoRequest> {
+  const previousFrame = from.lastFrameFile
+    ? await uploadFile(from.lastFrameFile)
+    : from.parentId === null && existsSync(INTRO_LAST_FRAME)
+      ? await uploadAsset(INTRO_LAST_FRAME)
+      : null;
   const { refs, cast } = selectReferences(plan, Boolean(previousFrame));
   const durationSecs = STEP_SECS;
 
   if (refs.length + cast.length > 0) {
-    // TODO: asset images must be public URLs or uploaded @input refs once they exist.
-    const all = [...refs, ...(previousFrame ? [{ label: "the previous shot's final frame (continuity)", image: previousFrame }] : []), ...cast];
-    const legend = all.map((r, i) => `Image ${i + 1}: ${r.label}.`).join(" ");
+    // Order: environment, protagonist, previous frame (continuity), then ranked cast; max 9.
+    const entries = [
+      ...refs.map(r => ({ label: r.label, ref: uploadAsset(r.image) })),
+      ...(previousFrame ? [{ label: "the previous shot's final frame (continuity)", ref: Promise.resolve(previousFrame) }] : []),
+      ...cast.map(r => ({ label: r.label, ref: uploadAsset(r.image) })),
+    ].slice(0, MAX_IMAGE_REFS);
+    const legend = entries.map((r, i) => `Image ${i + 1}: ${r.label}.`).join(" ");
     return {
       task_type: "R2V",
       prompt: `${legend}\n\n${plan.shotPrompt}`,
-      src_image_urls: all.map(r => r.image).slice(0, MAX_IMAGE_REFS),
+      src_image_urls: await Promise.all(entries.map(r => r.ref)),
       durationSecs,
     };
   }

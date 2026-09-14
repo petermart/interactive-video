@@ -1,4 +1,5 @@
-import { CACHE_DIR, keys } from "./config";
+import { existsSync, mkdirSync } from "node:fs";
+import { CACHE_DIR, keys, ROOT } from "./config";
 
 const API = "https://api.machgen.ai/api/v0";
 const auth = { Authorization: `Bearer ${keys.machgen}` };
@@ -26,10 +27,12 @@ No music.`;
     ...req,
     prompt,
     src_image_urls: req.src_image_urls?.slice(0, MAX_IMAGE_REFS),
+    optimization_level: "EXPRESS", // lowest H3 settings: fastest turnaround for live play
     video_config: { duration_secs: durationSecs, height: 480, aspect_ratio: "16:9" },
   };
-  // 480p measured at ~$0.035/sec.
-  console.log(`[machgen] ${body.task_type} ${durationSecs}s submit (~$${(durationSecs * 0.035).toFixed(2)}): ${req.prompt.slice(0, 80)}…`);
+  // 480p pricing: T2V/I2V $0.035/s, R2V (reference images) $0.05/s.
+  const rate = body.task_type === "R2V" ? 0.05 : 0.035;
+  console.log(`[machgen] ${body.task_type} ${durationSecs}s submit (~$${(durationSecs * rate).toFixed(2)}): ${req.prompt.slice(0, 80)}…`);
   const submit = await fetch(`${API}/generate`, {
     method: "POST",
     headers: { ...auth, "Content-Type": "application/json" },
@@ -62,6 +65,30 @@ export async function uploadFile(path: string) {
   const body = await res.json();
   if (!res.ok || !body.artifact_path) throw new Error(`MachGen upload ${res.status}: ${JSON.stringify(body).slice(0, 300)}`);
   return `@input/${body.artifact_path}`;
+}
+
+const uploadedAssets = new Map<string, Promise<string>>();
+
+/**
+ * Uploads a repo asset image once per server run (downscaled to a 1600px JPEG) and caches its @input ref.
+ * Asset PNGs are ~5MB at 3641x2048; references don't need that resolution.
+ */
+export function uploadAsset(repoPath: string) {
+  let ref = uploadedAssets.get(repoPath);
+  if (!ref) {
+    ref = (async () => {
+      const jpeg = `${CACHE_DIR}/refs/${repoPath.replace(/[\/]/g, "__").replace(/.png$/i, ".jpg")}`;
+      mkdirSync(`${CACHE_DIR}/refs`, { recursive: true });
+      if (!existsSync(jpeg)) {
+        const proc = Bun.spawn(["ffmpeg", "-v", "error", "-y", "-i", `${ROOT}${repoPath}`, "-vf", "scale=1600:-2", "-q:v", "3", jpeg]);
+        if ((await proc.exited) !== 0) throw new Error(`ffmpeg failed downscaling ${repoPath}`);
+      }
+      return uploadFile(jpeg);
+    })();
+    ref.catch(() => uploadedAssets.delete(repoPath));
+    uploadedAssets.set(repoPath, ref);
+  }
+  return ref;
 }
 
 /** Extracts the last frame of a video as a PNG (ffmpeg). */

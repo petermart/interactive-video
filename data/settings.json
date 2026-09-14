@@ -3,7 +3,7 @@
   "successProbability": 60,
   "creativityPoints": 30,
   "promptsTillSuccess": 6,
-  "liveLLM": false,
-  "liveVideo": false,
+  "liveLLM": true,
+  "liveVideo": true,
   "llmModel": "google/gemini-3.8-flash"
 }

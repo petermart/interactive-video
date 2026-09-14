@@ -19,127 +19,127 @@
       "id": "protagonist",
       "role": "hero",
       "description": "Larry (inmate 4471). Lean, wiry young man, late 20s, sharp determined eyes, messy black hair with a single scar through the left eyebrow. Wears a RED prison jumpsuit (the only red jumpsuit in the prison), sleeves tied at the waist over a charcoal tank top, taped wrists, amber eyes, '4471' on his back.",
-      "image": null
+      "image": "common-generated-assets/characters/larry-protagonist.png"
     },
     {
       "id": "guard-01",
       "role": "guard",
       "description": "Towering veteran sergeant, grey buzz cut, thick mustache, heavy baton.",
-      "image": null
+      "image": "common-generated-assets/characters/guard1.png"
     },
     {
       "id": "guard-02",
       "role": "guard",
       "description": "Young rookie guard, oversized cap, nervous eyes, clutching a clipboard.",
-      "image": null
+      "image": "common-generated-assets/characters/guard2.png"
     },
     {
       "id": "guard-03",
       "role": "guard",
       "description": "Stern woman lieutenant, tight bun, mirrored aviator sunglasses, radio on shoulder.",
-      "image": null
+      "image": "common-generated-assets/characters/guard3.png"
     },
     {
       "id": "guard-04",
       "role": "guard",
       "description": "Heavyset guard with a jangling key ring and a donut-crumb uniform.",
-      "image": null
+      "image": "common-generated-assets/characters/guard4.png"
     },
     {
       "id": "guard-05",
       "role": "guard",
       "description": "Silent watchtower sniper, balaclava, long rifle, night-vision goggles on helmet.",
-      "image": null
+      "image": "common-generated-assets/characters/guard5.png"
     },
     {
       "id": "guard-06",
       "role": "guard",
       "description": "K-9 handler with a German shepherd, cargo pants, bite-proof sleeve.",
-      "image": null
+      "image": "common-generated-assets/characters/guard6.png"
     },
     {
       "id": "guard-07",
       "role": "guard",
       "description": "Wiry, paranoid control-room guard with headset, glasses reflecting CCTV monitors.",
-      "image": null
+      "image": "common-generated-assets/characters/guard7.png"
     },
     {
       "id": "guard-08",
       "role": "guard",
       "description": "Bald riot-squad brute in black tactical armor and a scratched visor helmet.",
-      "image": null
+      "image": "common-generated-assets/characters/guard8.png"
     },
     {
       "id": "guard-09",
       "role": "guard",
       "description": "Older warden's right-hand, crisp navy dress uniform, silver hair, cold smile.",
-      "image": null
+      "image": "common-generated-assets/characters/guard9.png"
     },
     {
       "id": "guard-10",
       "role": "guard",
       "description": "Lanky night-shift guard, dark eye bags, flashlight, coffee thermos.",
-      "image": null
+      "image": "common-generated-assets/characters/guard10.png"
     },
     {
       "id": "prisoner-01",
       "role": "prisoner",
       "description": "Tall sturdy lifer, long grey-streaked hair in a back braid, long braided beard, worn orange jumpsuit with torn holes, calm gentle eyes, carries a small worn book.",
-      "image": null
+      "image": "common-generated-assets/characters/prisoner1.png"
     },
     {
       "id": "prisoner-02",
       "role": "prisoner",
       "description": "Skinny tech-savvy hacker kid, taped glasses, restless hands.",
-      "image": null
+      "image": "common-generated-assets/characters/prisoner2.png"
     },
     {
       "id": "prisoner-03",
       "role": "prisoner",
       "description": "Old con man, slicked-back white hair, gold tooth, deck of cards.",
-      "image": null
+      "image": "common-generated-assets/characters/prisoner3.png"
     },
     {
       "id": "prisoner-04",
       "role": "prisoner",
       "description": "Muscular boxer with taped knuckles and a flattened nose.",
-      "image": null
+      "image": "common-generated-assets/characters/prisoner4.png"
     },
     {
       "id": "prisoner-05",
       "role": "prisoner",
       "description": "Quiet artist with paint-stained fingers and long dreadlocks tied back.",
-      "image": null
+      "image": "common-generated-assets/characters/prisoner5.png"
     },
     {
       "id": "prisoner-06",
       "role": "prisoner",
       "description": "Twitchy smuggler with shaved head, many pockets sewn into his jumpsuit.",
-      "image": null
+      "image": "common-generated-assets/characters/prisoner6.png"
     },
     {
       "id": "prisoner-07",
       "role": "prisoner",
       "description": "Stoic ex-soldier, grey crew cut, dog tags, military posture.",
-      "image": null
+      "image": "common-generated-assets/characters/prisoner7.png"
     },
     {
       "id": "prisoner-08",
       "role": "prisoner",
       "description": "Flamboyant kitchen worker, hairnet, huge grin, ladle.",
-      "image": null
+      "image": "common-generated-assets/characters/prisoner8.png"
     },
     {
       "id": "prisoner-09",
       "role": "prisoner",
       "description": "Hulking gang leader, facial tattoos, shades, surrounded by loyalty.",
-      "image": null
+      "image": "common-generated-assets/characters/prisoner9.png"
     },
     {
       "id": "prisoner-10",
       "role": "prisoner",
       "description": "Nimble acrobat-thief, small frame, wrapped wrists, mischievous smirk.",
-      "image": null
+      "image": "common-generated-assets/characters/prisoner10.png"
     }
   ],
   "environments": [
@@ -151,7 +151,7 @@
         "hall-main",
         "air-vents"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/cell-block-a.png"
     },
     {
       "id": "cell-block-tier",
@@ -162,7 +162,7 @@
         "air-vents",
         "rooftop"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/cell-block-tier.png"
     },
     {
       "id": "hall-main",
@@ -179,7 +179,7 @@
         "yard",
         "solitary"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/hall-main.png"
     },
     {
       "id": "cafeteria",
@@ -189,7 +189,7 @@
         "kitchen",
         "air-vents"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/cafeteria.png"
     },
     {
       "id": "kitchen",
@@ -199,7 +199,7 @@
         "loading-dock",
         "utility-tunnels"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/kitchen.png"
     },
     {
       "id": "laundry",
@@ -209,7 +209,7 @@
         "loading-dock",
         "utility-tunnels"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/laundry.png"
     },
     {
       "id": "yard",
@@ -220,7 +220,7 @@
         "perimeter-fence",
         "guard-tower"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/yard.png"
     },
     {
       "id": "workshop",
@@ -230,7 +230,7 @@
         "utility-tunnels",
         "loading-dock"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/workshop.png"
     },
     {
       "id": "infirmary",
@@ -239,7 +239,7 @@
         "hall-main",
         "air-vents"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/infirmary.png"
     },
     {
       "id": "library",
@@ -248,7 +248,7 @@
         "hall-main",
         "air-vents"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/library.png"
     },
     {
       "id": "showers",
@@ -259,7 +259,7 @@
         "utility-tunnels",
         "sewer-drain"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/showers.png"
     },
     {
       "id": "solitary",
@@ -267,7 +267,7 @@
       "neighbors": [
         "hall-main"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/solitary.png"
     },
     {
       "id": "visitation",
@@ -276,7 +276,7 @@
         "hall-main",
         "guard-station"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/visitation.png"
     },
     {
       "id": "guard-station",
@@ -286,7 +286,7 @@
         "visitation",
         "warden-office"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/guard-station.png"
     },
     {
       "id": "warden-office",
@@ -295,7 +295,7 @@
         "guard-station",
         "rooftop"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/warden-office.png"
     },
     {
       "id": "air-vents",
@@ -309,7 +309,7 @@
         "utility-tunnels",
         "rooftop"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/air-vents.png"
     },
     {
       "id": "utility-tunnels",
@@ -322,7 +322,7 @@
         "air-vents",
         "sewer-drain"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/utility-tunnels.png"
     },
     {
       "id": "sewer-drain",
@@ -331,7 +331,7 @@
         "showers",
         "utility-tunnels"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/sewer-drain.png"
     },
     {
       "id": "rooftop",
@@ -342,7 +342,7 @@
         "warden-office",
         "perimeter-fence"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/rooftop.png"
     },
     {
       "id": "guard-tower",
@@ -351,7 +351,7 @@
         "yard",
         "perimeter-fence"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/guard-tower.png"
     },
     {
       "id": "perimeter-fence",
@@ -361,7 +361,7 @@
         "rooftop",
         "guard-tower"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/perimeter-fence.png"
     },
     {
       "id": "loading-dock",
@@ -371,7 +371,7 @@
         "laundry",
         "workshop"
       ],
-      "image": null
+      "image": "common-generated-assets/environments/loading-dock.png"
     }
   ]
 }
