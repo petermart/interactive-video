@@ -1,9 +1,18 @@
 import { serve } from "bun";
 import { existsSync } from "node:fs";
 import index from "./index.html";
-import { getSettings, MEDIA_DIR, ROOT, updateSettings } from "./server/config";
-import { jobEvents, looseEvents, recentJobs } from "./server/db";
+import { CACHE_DIR, EXPORT_DIR, getSettings, MEDIA_DIR, ROOT, updateSettings } from "./server/config";
+import { checkAdminPassword, creditsReport, MACHGEN_MIN_BALANCE_USD, videoGenerationAllowed } from "./server/credits";
+import { jobContext, jobEvents, looseEvents, recentJobs } from "./server/db";
+import { exportFilm } from "./server/export";
 import { createSession, getJob, getNode, startDirection } from "./server/pipeline";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** The per-browser-session viewer UUID sent by the client, if valid. */
+const viewerOf = (req: Request) => {
+  const id = req.headers.get("x-viewer-id") ?? "";
+  return UUID.test(id) ? id.toLowerCase() : undefined;
+};
 
 /** Serves a file from a base directory, refusing path traversal. */
 function staticFrom(base: string, prefix: string) {
@@ -16,10 +25,13 @@ function staticFrom(base: string, prefix: string) {
 }
 
 const server = serve({
-  port: 3000,
+  port: Number(process.env.PORT ?? 3000),
   routes: {
     "/*": index,
 
+    // Generated clips and exports live in writable storage (a volume in deployment); the rest is committed media.
+    "/media/cache/*": staticFrom(CACHE_DIR, "/media/cache/"),
+    "/media/exports/*": staticFrom(EXPORT_DIR, "/media/exports/"),
     "/media/*": staticFrom(MEDIA_DIR, "/media/"),
     "/hyperframes/*": staticFrom(`${ROOT}hyperframes`, "/hyperframes/"),
 
@@ -29,7 +41,7 @@ const server = serve({
     },
 
     "/api/session": {
-      POST: () => Response.json(createSession()),
+      POST: req => Response.json(createSession(viewerOf(req))),
     },
 
     // Resume a node after a page reload (e.g. to replay a step that finished while the tab was closed).
@@ -38,16 +50,50 @@ const server = serve({
       return node ? Response.json(node) : Response.json({ error: "Unknown node" }, { status: 404 });
     },
 
+    // Public: lets the page show the out-of-credits banner. Only reports a boolean, never the balance.
+    "/api/status": async () => {
+      const paused = getSettings().liveVideo && !(await videoGenerationAllowed());
+      return Response.json({ generationPaused: paused, minBalanceUsd: MACHGEN_MIN_BALANCE_USD });
+    },
+
+    // Admin-only credit balances (password checked against a stored SHA-256 hash).
+    "/api/admin/credits": {
+      POST: async req => {
+        const { password } = await req.json().catch(() => ({}));
+        if (!checkAdminPassword(password)) return Response.json({ error: "Wrong password" }, { status: 401 });
+        return Response.json(await creditsReport());
+      },
+    },
+
+    // Stitch the intro + every generated clip up to a node into one MP4 with the soundtrack.
+    "/api/export": {
+      POST: async req => {
+        const { nodeId } = await req.json().catch(() => ({}));
+        try {
+          return Response.json(await jobContext.run({ viewerId: viewerOf(req) }, () => exportFilm(String(nodeId))));
+        } catch (err) {
+          return Response.json({ error: String((err as Error)?.message ?? err) }, { status: 400 });
+        }
+      },
+    },
+
     // Debug history (SQLite): recent jobs, then every event for one job.
-    "/api/debug/jobs": () => Response.json({ jobs: recentJobs(50), other: looseEvents(30) }),
-    "/api/debug/jobs/:id": req => Response.json({ events: jobEvents(req.params.id) }),
+    // Scoped to the requesting viewer's session UUID; without one there is nothing to show.
+    "/api/debug/jobs": req => {
+      const viewer = viewerOf(req);
+      return Response.json(viewer ? { jobs: recentJobs(viewer, 50), other: looseEvents(viewer, 30) } : { jobs: [], other: [] });
+    },
+    "/api/debug/jobs/:id": req => {
+      const viewer = viewerOf(req);
+      return Response.json({ events: viewer ? jobEvents(req.params.id, viewer) : [] });
+    },
 
     "/api/direct": {
       POST: async req => {
         const { fromNodeId, direction } = await req.json();
         if (!direction?.trim()) return Response.json({ error: "Empty direction" }, { status: 400 });
         try {
-          const job = startDirection(fromNodeId, direction);
+          const job = startDirection(fromNodeId, direction, viewerOf(req));
           return Response.json({ jobId: job.id });
         } catch (err) {
           return Response.json({ error: String(err) }, { status: 400 });

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { ROOT } from "./config";
+import { DB_FILE } from "./config";
 
 /**
  * Debug + persistence store (data/debug.sqlite, gitignored).
@@ -8,7 +8,7 @@ import { ROOT } from "./config";
  * - jobs / nodes: pipeline state, so a page reload or server hot-reload doesn't lose in-flight or finished steps
  */
 const g = globalThis as unknown as { __prisonDb?: Database };
-export const db = (g.__prisonDb ??= new Database(`${ROOT}data/debug.sqlite`, { create: true }));
+export const db = (g.__prisonDb ??= new Database(DB_FILE, { create: true }));
 
 db.exec(`
   PRAGMA journal_mode = WAL;
@@ -40,14 +40,24 @@ db.exec(`
   );
 `);
 
-/** Carries the current job id through async calls so gmi/machgen logs attach to the right job. */
-export const jobContext = new AsyncLocalStorage<{ jobId: string }>();
+// Per-viewer scoping (added after the first deploy of this schema): each browser session sends a UUID.
+for (const table of ["events", "jobs"]) {
+  try {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN viewer_id TEXT`);
+  } catch {
+    // column already exists
+  }
+}
+db.exec(`CREATE INDEX IF NOT EXISTS events_viewer ON events(viewer_id); CREATE INDEX IF NOT EXISTS jobs_viewer ON jobs(viewer_id);`);
+
+/** Carries the current job and viewer through async calls so gmi/machgen logs attach to the right job and viewer. */
+export const jobContext = new AsyncLocalStorage<{ jobId?: string; viewerId?: string }>();
 
 export type EventKind = "job" | "llm" | "decision" | "upload" | "video" | "error";
 
 const insertEvent = db.prepare(
-  `INSERT INTO events (job_id, kind, label, status, duration_ms, cost_usd, request, response)
-   VALUES ($job_id, $kind, $label, $status, $duration_ms, $cost_usd, $request, $response)`,
+  `INSERT INTO events (job_id, viewer_id, kind, label, status, duration_ms, cost_usd, request, response)
+   VALUES ($job_id, $viewer_id, $kind, $label, $status, $duration_ms, $cost_usd, $request, $response)`,
 );
 
 const json = (v: unknown) => (v === undefined ? null : typeof v === "string" ? v : JSON.stringify(v));
@@ -64,6 +74,7 @@ export function logEvent(e: {
   try {
     insertEvent.run({
       $job_id: jobContext.getStore()?.jobId ?? null,
+      $viewer_id: jobContext.getStore()?.viewerId ?? null,
       $kind: e.kind,
       $label: e.label,
       $status: e.status ?? "ok",
@@ -83,12 +94,13 @@ export async function traced<T>(
   label: string,
   request: unknown,
   fn: () => Promise<T>,
-  opts: { costUsd?: number; summarize?: (result: T) => unknown } = {},
+  opts: { costUsd?: number; cost?: (result: T) => number | undefined; summarize?: (result: T) => unknown } = {},
 ): Promise<T> {
   const t0 = performance.now();
   try {
     const result = await fn();
-    logEvent({ kind, label, durationMs: performance.now() - t0, costUsd: opts.costUsd, request, response: opts.summarize ? opts.summarize(result) : result });
+    const costUsd = opts.cost ? opts.cost(result) : opts.costUsd;
+    logEvent({ kind, label, durationMs: performance.now() - t0, costUsd, request, response: opts.summarize ? opts.summarize(result) : result });
     return result;
   } catch (err) {
     logEvent({ kind, label, status: "error", durationMs: performance.now() - t0, request, response: String((err as Error)?.message ?? err) });
@@ -97,11 +109,11 @@ export async function traced<T>(
 }
 
 const upsertJob = db.prepare(
-  `INSERT INTO jobs (id, from_node_id, direction, status, data) VALUES ($id, $from, $direction, $status, $data)
+  `INSERT INTO jobs (id, viewer_id, from_node_id, direction, status, data) VALUES ($id, $viewer, $from, $direction, $status, $data)
    ON CONFLICT(id) DO UPDATE SET status = $status, data = $data, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
 );
-export const saveJob = (job: { id: string; status: string }, fromNodeId: string, direction: string) =>
-  upsertJob.run({ $id: job.id, $from: fromNodeId, $direction: direction, $status: job.status, $data: JSON.stringify(job) });
+export const saveJob = (job: { id: string; status: string; viewerId?: string }, fromNodeId: string, direction: string) =>
+  upsertJob.run({ $id: job.id, $viewer: job.viewerId ?? null, $from: fromNodeId, $direction: direction, $status: job.status, $data: JSON.stringify(job) });
 
 const upsertNode = db.prepare(`INSERT INTO nodes (id, data) VALUES ($id, $data) ON CONFLICT(id) DO UPDATE SET data = $data`);
 export const saveNode = (node: { id: string }) => upsertNode.run({ $id: node.id, $data: JSON.stringify(node) });
@@ -115,24 +127,25 @@ export const loadNode = <T>(id: string) => {
   return row ? (JSON.parse(row.data) as T) : undefined;
 };
 
-/** Recent jobs with their event counts, total cost and duration, newest first. */
-export function recentJobs(limit = 50) {
+/** A viewer's recent jobs with their event counts, total cost and duration, newest first. */
+export function recentJobs(viewerId: string, limit = 50) {
   return db
     .query(
       `SELECT j.id, j.created_at, j.updated_at, j.direction, j.status,
               COUNT(e.id) AS events, ROUND(COALESCE(SUM(e.cost_usd), 0), 3) AS cost_usd,
               SUM(CASE WHEN e.status = 'error' THEN 1 ELSE 0 END) AS errors
        FROM jobs j LEFT JOIN events e ON e.job_id = j.id
+       WHERE j.viewer_id = ?
        GROUP BY j.id ORDER BY j.created_at DESC LIMIT ?`,
     )
-    .all(limit);
+    .all(viewerId, limit);
 }
 
-export function jobEvents(jobId: string) {
-  return db.query(`SELECT * FROM events WHERE job_id = ? ORDER BY id`).all(jobId);
+export function jobEvents(jobId: string, viewerId: string) {
+  return db.query(`SELECT * FROM events WHERE job_id = ? AND job_id IN (SELECT id FROM jobs WHERE viewer_id = ?) ORDER BY id`).all(jobId, viewerId);
 }
 
-/** Events not tied to a job (session starts, settings changes, background uploads). */
-export function looseEvents(limit = 50) {
-  return db.query(`SELECT * FROM events WHERE job_id IS NULL ORDER BY id DESC LIMIT ?`).all(limit);
+/** A viewer's events not tied to a job (session starts, exports). */
+export function looseEvents(viewerId: string, limit = 50) {
+  return db.query(`SELECT * FROM events WHERE job_id IS NULL AND viewer_id = ? ORDER BY id DESC LIMIT ?`).all(viewerId, limit);
 }

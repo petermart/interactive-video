@@ -1,4 +1,5 @@
 import { keys } from "./config";
+import { gmiCallCost } from "./credits";
 import { traced } from "./db";
 import { isRetryableStatus, RetryableHttpError, withRetry } from "./net";
 
@@ -39,7 +40,7 @@ export async function chatJSON<T>(model: string, system: string, user: string, l
         },
         3,
       ),
-    { summarize: r => r },
+    { summarize: r => r, cost: r => gmiCallCost(model, r.usage) },
   );
   return parsed;
 }

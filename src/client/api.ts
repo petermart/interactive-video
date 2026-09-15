@@ -1,5 +1,6 @@
 import type { Settings } from "../server/config";
 import type { Job, StoryNode } from "../server/pipeline";
+import { apiFetch } from "./viewer";
 
 export type { Job, Settings, StoryNode };
 
@@ -10,14 +11,14 @@ const json = async <T,>(res: Response): Promise<T> => {
 };
 
 export const api = {
-  settings: () => fetch("/api/settings").then(r => json<Settings>(r)),
+  settings: () => apiFetch("/api/settings").then(r => json<Settings>(r)),
   saveSettings: (patch: Partial<Settings>) =>
-    fetch("/api/settings", { method: "PUT", body: JSON.stringify(patch) }).then(r => json<Settings>(r)),
-  session: () => fetch("/api/session", { method: "POST" }).then(r => json<{ root: StoryNode; music: string | null; thinkingLoop: string }>(r)),
+    apiFetch("/api/settings", { method: "PUT", body: JSON.stringify(patch) }).then(r => json<Settings>(r)),
+  session: () => apiFetch("/api/session", { method: "POST" }).then(r => json<{ root: StoryNode; music: string | null; thinkingLoop: string }>(r)),
   direct: (fromNodeId: string, direction: string) =>
-    fetch("/api/direct", { method: "POST", body: JSON.stringify({ fromNodeId, direction }) }).then(r =>
+    apiFetch("/api/direct", { method: "POST", body: JSON.stringify({ fromNodeId, direction }) }).then(r =>
       json<{ jobId: string }>(r),
     ),
-  node: (id: string) => fetch(`/api/node/${id}`).then(r => json<StoryNode>(r)),
-  job: (id: string) => fetch(`/api/job/${id}`).then(r => json<Job>(r)),
+  node: (id: string) => apiFetch(`/api/node/${id}`).then(r => json<StoryNode>(r)),
+  job: (id: string) => apiFetch(`/api/job/${id}`).then(r => json<Job>(r)),
 };

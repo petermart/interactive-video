@@ -1,0 +1,22 @@
+# Secrets: keys come from environment variables in deployment
+keys.json
+.env
+
+# Local state (the container uses the /data volume instead)
+data/debug.sqlite*
+data/settings.json
+data/sessions/
+media/cache/
+media/exports/
+media/intro/refs/
+
+# Not needed at runtime
+node_modules/
+out/
+dist/
+.git/
+.claude/
+scripts/
+docs/
+common-generated-assets/videos/masky/
+common-generated-assets/music/

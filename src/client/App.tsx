@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AdminPanel } from "./AdminPanel";
+import { CreditsBanner } from "./CreditsBanner";
+import { DownloadFilmButton } from "./DownloadFilmButton";
 import { DebugPanel } from "./DebugPanel";
 import { GeneratingHud } from "./GeneratingHud";
 import { api, type Job, type StoryNode } from "./api";
@@ -64,6 +66,8 @@ export function App() {
   const [playing, setPlaying] = useState<StoryNode | null>(null);
   const [status, setStatus] = useState("");
   const [toast, setToast] = useState("");
+  /** A step came back without video because MachGen is out of credits. */
+  const [creditsExhausted, setCreditsExhausted] = useState(false);
   const [lastDebug, setLastDebug] = useState<Job["debug"] | null>(null);
   const [resume, setResume] = useState<Pending | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -180,6 +184,7 @@ export function App() {
         }
         setStatus(job.message);
         if (job.debug) setLastDebug(job.debug);
+        if (job.creditsExhausted) setCreditsExhausted(true);
         // The server keeps generating while the tab is in the background; hold the result until the
         // viewer is back so the clip (or the 15s scene text) isn't played to an empty, throttled tab.
         if (["rejected", "error", "done"].includes(job.status)) await untilVisible();
@@ -259,7 +264,15 @@ export function App() {
       {phase === "failed" && (
         <div className="absolute inset-0 z-20">
           <HyperFrame name="failed" bind={failedBind} />
-          <div className="absolute bottom-28 left-1/2 flex -translate-x-1/2 gap-4">
+          <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 flex-col items-center gap-4">
+            {playing && (
+              <DownloadFilmButton
+                nodeId={playing.id}
+                outcome="failed"
+                className="border-sodium/70 bg-black/70 text-sodium hover:bg-sodium hover:text-black"
+              />
+            )}
+          <div className="flex gap-4">
             <button
               onClick={retryLastStep}
               className="rounded-md border border-white/20 bg-black/70 px-6 py-3 font-display font-semibold tracking-widest text-white backdrop-blur hover:border-sodium hover:text-sodium"
@@ -273,18 +286,28 @@ export function App() {
               TRY AGAIN FROM BEGINNING
             </button>
           </div>
+          </div>
         </div>
       )}
 
       {phase === "escaped" && (
         <div className="absolute inset-0 z-20 bg-black/40">
           <HyperFrame name="escaped" />
-          <button
-            onClick={retryBeginning}
-            className="absolute bottom-16 left-1/2 -translate-x-1/2 rounded-md border border-[#3dff7a]/70 bg-black/70 px-8 py-3 font-display font-semibold tracking-[0.3em] text-[#3dff7a] backdrop-blur hover:bg-[#3dff7a] hover:text-black"
-          >
-            PLAY AGAIN
-          </button>
+          <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 items-start gap-4">
+            {playing && (
+              <DownloadFilmButton
+                nodeId={playing.id}
+                outcome="escaped"
+                className="border-[#3dff7a] bg-[#3dff7a] text-black hover:bg-[#3dff7a]/80"
+              />
+            )}
+            <button
+              onClick={retryBeginning}
+              className="rounded-md border border-[#3dff7a]/70 bg-black/70 px-8 py-3 font-display font-semibold tracking-[0.3em] text-[#3dff7a] backdrop-blur hover:bg-[#3dff7a] hover:text-black"
+            >
+              PLAY AGAIN
+            </button>
+          </div>
         </div>
       )}
 
@@ -300,6 +323,7 @@ export function App() {
         </div>
       )}
 
+      <CreditsBanner forced={creditsExhausted} />
       <DebugPanel />
       <AdminPanel lastDebug={lastDebug} />
 

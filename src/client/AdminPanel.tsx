@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, type LlmModelId, type OutcomeMode } from "../server/constants";
+import { AdminCredits } from "./AdminCredits";
 import { api, type Job, type Settings } from "./api";
 
 const MODE_HELP: Record<OutcomeMode, string> = {
@@ -39,6 +40,7 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
       {open && settings && (
         <div className="w-80 rounded-lg border border-white/10 bg-black/80 p-4 font-mono text-sm backdrop-blur-md">
           <h2 className="mb-3 font-display text-xs font-semibold tracking-[0.3em] text-teal">ADMIN // CONTROL ROOM</h2>
+          <AdminCredits />
 
           <div className="text-white/70">Success decided by</div>
           <div className="mt-1 grid grid-cols-3 overflow-hidden rounded border border-white/15">

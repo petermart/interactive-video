@@ -84,7 +84,37 @@ If you leave or reload the page while a step is generating, the start button sho
 | `bun scripts/gen-intro.ts larry-thinking keyframe\|video` | Silent 4s "Larry thinking" idle loop | ~$0.08 + ~$0.14 |
 | `bun scripts/gen-music.ts` | 30s seamless music loop → `media/music/loop.mp3` | ~$0.20 |
 
-## 8. Where things live
+## 8. Downloads, credits and admin
+
+- **Download your film:** the YOU FAILED and ESCAPED screens have a **DOWNLOAD YOUR FILM** button. The server stitches the intro and every generated clip in that run with ffmpeg, loops the background music underneath (35%), and downloads one MP4. Steps played without video are skipped. Exports are cached per ending.
+- **Credits:** in the admin panel, enter the admin password (`hackathon`; only its SHA-256 hash is stored in `src/server/credits.ts`) to see:
+  - **MachGen**: live balance from MachGen's billing API.
+  - **GMI Cloud**: an **estimate**, because GMI's balance API only works with a console login: `GMI_BALANCE_BASELINE` (update it from the GMI console) minus the LLM spend logged since then.
+- **Auto-pause:** when MachGen drops below **$10**, steps run without generating video and a small red banner tells players to notify the administrator.
+- **Debug history** is scoped to your browser session: each tab session gets a new UUID, and ☰ only shows that session's steps.
+
+## 9. Deploying (Railway, Docker)
+
+The app needs a long-running server, ffmpeg and a disk, so it deploys as a Docker container. Serverless platforms like Vercel don't fit.
+
+1. **Commit and push** everything, including `Dockerfile`, `.dockerignore` and `railway.json`. Generated assets in `common-generated-assets/` and `media/intro`, `media/music` must be committed.
+2. On **railway.com**: *New Project → Deploy from GitHub repo* → pick this repo. Railway builds the `Dockerfile` automatically.
+3. **Add a volume** to the service, mounted at **`/data`**. Generated clips, exports, settings and the debug DB are stored there (`STORAGE_DIR=/data` is set in the Dockerfile).
+4. **Variables** (Service → Variables):
+   | Variable | Value |
+   |---|---|
+   | `MACHGEN_API_KEY` | your MachGen key |
+   | `GMI_API_KEY` | your GMI key |
+   | `ELEVENLABS_API_KEY` | optional |
+5. **Networking → Generate Domain** to get a public URL. Railway sets `PORT` for you.
+6. Open the site, then in the admin panel turn on **Live LLM** and (optionally) turn off **No video generation**. A fresh volume starts with both off.
+
+Local production-mode check (no Docker needed):
+```bash
+NODE_ENV=production STORAGE_DIR=./.prod-data PORT=3099 bun src/index.ts
+```
+
+## 10. Where things live
 
 - `master-plan.md`: the full design and TODOs
 - `data/world.json`: style rules, characters, environments (with image paths), map adjacency

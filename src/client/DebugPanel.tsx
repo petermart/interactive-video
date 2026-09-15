@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { apiFetch } from "./viewer";
 
 type JobRow = {
   id: string;
@@ -43,10 +44,10 @@ export function DebugPanel() {
   useEffect(() => {
     if (!open) return;
     const load = async () => {
-      const data = await fetch("/api/debug/jobs").then(r => r.json());
+      const data = await apiFetch("/api/debug/jobs").then(r => r.json());
       setJobs(data.jobs);
       setOther(data.other);
-      if (selected) setEvents((await fetch(`/api/debug/jobs/${selected}`).then(r => r.json())).events);
+      if (selected) setEvents((await apiFetch(`/api/debug/jobs/${selected}`).then(r => r.json())).events);
     };
     load();
     const t = setInterval(load, 2000);

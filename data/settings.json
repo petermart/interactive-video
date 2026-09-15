@@ -6,6 +6,6 @@
   "liveLLM": true,
   "liveVideo": true,
   "constantThink": true,
-  "analysisModel": "google/gemini-3.5-flash-lite",
+  "analysisModel": "google/gemini-3.8-flash",
   "writerModel": "google/gemini-3.5-flash-lite"
 }

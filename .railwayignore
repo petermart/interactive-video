@@ -1,0 +1,15 @@
+# `railway up` upload filter (on top of .gitignore). The runtime only needs src/, data/world.json, hyperframes/,
+# media/ (intro, music, placeholder, prebuilt 1600px reference JPEGs in media/refs) and package files.
+
+# Full-size generated images and source clips: the server uses media/refs/*.jpg and media/intro/*.mp4 instead
+common-generated-assets/**/*.png
+common-generated-assets/**/*.mp4
+common-generated-assets/**/*.jpeg
+common-generated-assets/**/*.mp3
+common-generated-assets/videos/masky/
+
+# Local tooling and docs
+scripts/
+docs/
+.claude/
+.mcp.json

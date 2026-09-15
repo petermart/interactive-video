@@ -1,8 +1,9 @@
 import { clamp, getSettings, introMedia, world, type OutcomeMode, type Settings } from "./config";
+import { MACHGEN_MIN_BALANCE_USD, videoGenerationAllowed } from "./credits";
 import { jobContext, loadJob, loadNode, logEvent, saveJob, saveNode } from "./db";
 import { chatJSON } from "./gmi";
 import { existsSync } from "node:fs";
-import { generateVideo, lastFrame, MAX_IMAGE_REFS, uploadAsset, uploadFile, type VideoRequest } from "./machgen";
+import { generateVideo, hasAsset, lastFrame, MAX_IMAGE_REFS, uploadAsset, uploadFile, type VideoRequest } from "./machgen";
 import { diagnosticSystem, writerSystem } from "./prompts";
 
 /** Step clips play out the viewer's action; loops idle on the protagonist's close-up. */
@@ -54,10 +55,14 @@ export type JobStatus = "diagnosing" | "writing" | "generating-clip" | "generati
 
 export type Job = {
   id: string;
+  /** Browser-session UUID of the viewer who started this step (scopes the debug history). */
+  viewerId?: string;
   fromNodeId: string;
   direction: string;
   status: JobStatus;
   message: string;
+  /** Set when video generation was requested but MachGen is below the minimum balance. */
+  creditsExhausted?: boolean;
   node?: StoryNode;
   debug?: {
     mode: OutcomeMode;
@@ -90,7 +95,11 @@ function setJob(job: Job, status: JobStatus, message: string) {
   logEvent({ kind: "job", label: `status → ${status}`, response: message || undefined });
 }
 
-export function createSession() {
+export function createSession(viewerId?: string) {
+  return jobContext.run({ viewerId }, () => createSessionFor());
+}
+
+function createSessionFor() {
   const media = introMedia();
   const root: StoryNode = {
     id: crypto.randomUUID(),
@@ -127,13 +136,13 @@ export function getJob(id: string) {
 }
 
 /** Starts the two-LLM + H3 pipeline for a direction. Returns immediately; poll the job. */
-export function startDirection(fromNodeId: string, direction: string) {
+export function startDirection(fromNodeId: string, direction: string, viewerId?: string) {
   const from = getNode(fromNodeId);
   if (!from) throw new Error("Unknown node");
   const clean = direction.trim().slice(0, 500);
-  const job: Job = { id: crypto.randomUUID(), fromNodeId, direction: clean, status: "diagnosing", message: "Analyzing escape plan…" };
+  const job: Job = { id: crypto.randomUUID(), viewerId, fromNodeId, direction: clean, status: "diagnosing", message: "Analyzing escape plan…" };
   jobs.set(job.id, job);
-  jobContext.run({ jobId: job.id }, () => {
+  jobContext.run({ jobId: job.id, viewerId }, () => {
     saveJob(job, fromNodeId, clean);
     logEvent({ kind: "job", label: "direction received", request: { direction: clean, fromNodeId, settings: getSettings() } });
     runPipeline(job, from, clean).catch(err => {
@@ -209,7 +218,14 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   job.debug.plan = plan;
 
   // H3 clip
-  if (settings.liveVideo) setJob(job, "generating-clip", "Rolling camera…");
+  // Credit guard: below the MachGen minimum, run this step without generating video (text scene instead).
+  let makeVideo = settings.liveVideo;
+  if (makeVideo && !(await videoGenerationAllowed())) {
+    makeVideo = false;
+    job.creditsExhausted = true;
+    logEvent({ kind: "error", label: `video skipped: MachGen balance below ${MACHGEN_MIN_BALANCE_USD}`, status: "error" });
+  }
+  if (makeVideo) setJob(job, "generating-clip", "Rolling camera…");
   const node: StoryNode = {
     id: crypto.randomUUID(),
     parentId: from.id,
@@ -224,7 +240,7 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     scene: { summary: plan.summary, shotPrompt: plan.shotPrompt },
   };
 
-  if (settings.liveVideo) {
+  if (makeVideo) {
     const clip = await generateVideo(await buildClipRequest(plan, from));
     node.clipUrl = clip.url;
     node.lastFrameFile = await lastFrame(clip.file);
@@ -232,10 +248,10 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
 
   // Idle loop on the closing close-up (success only)
   // Constant think: no per-step loop; the client idles on the fixed "Larry thinking" macro loop instead.
-  if (outcome === "success" && settings.liveVideo && settings.constantThink) {
+  if (outcome === "success" && makeVideo && settings.constantThink) {
     logEvent({ kind: "job", label: "idle loop skipped (constant think)", response: { saved: "~$0.14 and ~9s" } });
   }
-  if (outcome === "success" && settings.liveVideo && !settings.constantThink && node.lastFrameFile) {
+  if (outcome === "success" && makeVideo && !settings.constantThink && node.lastFrameFile) {
     setJob(job, "generating-loop", "Finding his next move…");
     {
       const frame = await uploadFile(node.lastFrameFile);
@@ -285,7 +301,7 @@ const INTRO_LAST_FRAME = "common-generated-assets/videos/intro-keyframe.png";
 export async function buildClipRequest(plan: ShotPlan, from: StoryNode): Promise<VideoRequest> {
   const previousFrame = from.lastFrameFile
     ? await uploadFile(from.lastFrameFile)
-    : from.parentId === null && existsSync(INTRO_LAST_FRAME)
+    : from.parentId === null && hasAsset(INTRO_LAST_FRAME)
       ? await uploadAsset(INTRO_LAST_FRAME)
       : null;
   const { refs, cast } = selectReferences(plan, Boolean(previousFrame));

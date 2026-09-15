@@ -1,13 +1,38 @@
 import { existsSync, mkdirSync } from "node:fs";
-import keysJson from "../../keys.json";
 import worldJson from "../../data/world.json";
 
 export const ROOT = new URL("../../", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+/** Committed, read-only media (intro, music, placeholder). */
 export const MEDIA_DIR = `${ROOT}media`;
-export const CACHE_DIR = `${MEDIA_DIR}/cache`;
-mkdirSync(CACHE_DIR, { recursive: true });
 
-export const keys = keysJson as { machgen: string; gmi: string; elevenlabs: string };
+/**
+ * Writable state. Locally it stays where it always was; in a container set STORAGE_DIR to a persistent volume
+ * (e.g. /data) and generated clips, exports, settings and the debug DB all live there.
+ */
+const STORAGE_DIR = process.env.STORAGE_DIR?.replace(/\/+$/, "");
+export const CACHE_DIR = STORAGE_DIR ? `${STORAGE_DIR}/cache` : `${MEDIA_DIR}/cache`;
+export const EXPORT_DIR = STORAGE_DIR ? `${STORAGE_DIR}/exports` : `${MEDIA_DIR}/exports`;
+export const DB_FILE = STORAGE_DIR ? `${STORAGE_DIR}/debug.sqlite` : `${ROOT}data/debug.sqlite`;
+const SETTINGS_FILE = STORAGE_DIR ? `${STORAGE_DIR}/settings.json` : `${ROOT}data/settings.json`;
+mkdirSync(CACHE_DIR, { recursive: true });
+mkdirSync(EXPORT_DIR, { recursive: true });
+
+/** Maps a served /media/... URL to its file: generated clips and exports come from storage, the rest from media/. */
+export function mediaPath(url: string | null) {
+  if (!url?.startsWith("/media/")) return null;
+  if (url.startsWith("/media/cache/")) return `${CACHE_DIR}/${url.slice("/media/cache/".length)}`;
+  if (url.startsWith("/media/exports/")) return `${EXPORT_DIR}/${url.slice("/media/exports/".length)}`;
+  return `${MEDIA_DIR}/${url.slice("/media/".length)}`;
+}
+
+/** API keys: keys.json locally (gitignored); environment variables override it (used in deployment). */
+const keysFile = `${ROOT}keys.json`;
+const fileKeys: Record<string, string> = existsSync(keysFile) ? await Bun.file(keysFile).json() : {};
+export const keys = {
+  machgen: process.env.MACHGEN_API_KEY ?? fileKeys.machgen ?? "",
+  gmi: process.env.GMI_API_KEY ?? fileKeys.gmi ?? "",
+  elevenlabs: process.env.ELEVENLABS_API_KEY ?? fileKeys.elevenlabs ?? "",
+};
 
 export type Character = { id: string; role: string; description: string; image: string | null };
 export type Environment = {
@@ -44,7 +69,6 @@ export type Settings = {
   writerModel: LlmModelId;
 };
 
-const SETTINGS_FILE = `${ROOT}data/settings.json`;
 const defaults: Settings = {
   outcomeMode: "vibes",
   successProbability: 60,

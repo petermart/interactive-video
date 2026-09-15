@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { CACHE_DIR, keys, ROOT } from "./config";
+import { CACHE_DIR, keys, MEDIA_DIR, ROOT } from "./config";
 import { logEvent, traced } from "./db";
 import { isRetryableStatus, RetryableHttpError, withRetry } from "./net";
 
@@ -106,6 +106,12 @@ export async function uploadFile(path: string) {
 
 const uploadedAssets = new Map<string, Promise<string>>();
 
+const refName = (repoPath: string) => repoPath.replace(/[\\/]/g, "__").replace(/\.png$/i, ".jpg");
+const prebuiltRef = (repoPath: string) => `${MEDIA_DIR}/refs/${refName(repoPath)}`;
+
+/** True if an asset image can be used as a reference (full-size PNG locally, or its prebuilt JPEG). */
+export const hasAsset = (repoPath: string) => existsSync(`${ROOT}${repoPath}`) || existsSync(prebuiltRef(repoPath));
+
 /**
  * Uploads a repo asset image once per server run (downscaled to a 1600px JPEG) and caches its @input ref.
  * Asset PNGs are ~5MB at 3641x2048; references don't need that resolution.
@@ -116,7 +122,10 @@ export function uploadAsset(repoPath: string) {
     logEvent({ kind: "upload", label: `reuse cached ref ${repoPath.split("/").pop()}`, request: { repoPath } });
   } else {
     ref = (async () => {
-      const jpeg = `${CACHE_DIR}/refs/${repoPath.replace(/[\\/]/g, "__").replace(/\.png$/i, ".jpg")}`;
+      // Prefer the committed 1600px JPEG (media/refs) so deployments don't need the full-size PNGs.
+      const prebuilt = prebuiltRef(repoPath);
+      if (existsSync(prebuilt)) return uploadFile(prebuilt);
+      const jpeg = `${CACHE_DIR}/refs/${refName(repoPath)}`;
       mkdirSync(`${CACHE_DIR}/refs`, { recursive: true });
       if (!existsSync(jpeg)) {
         const proc = Bun.spawn(["ffmpeg", "-v", "error", "-y", "-i", `${ROOT}${repoPath}`, "-vf", "scale=1600:-2", "-q:v", "3", jpeg]);
