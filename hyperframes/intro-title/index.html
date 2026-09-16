@@ -8,6 +8,8 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
   #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden;
     font-family: "Chakra Petch", sans-serif; color: #fff; }
+  /* Full-window atmosphere: outside the letterboxed stage, so lights always reach the window edges. */
+  #bleed { position: fixed; inset: 0; overflow: hidden; pointer-events: none; }
   /* Transparent overlay over the intro video: only a soft vignette so the type reads. */
   #vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 45%, transparent 45%, rgba(0,0,0,.55) 100%); }
   .edge { position: absolute; top: 0; bottom: 0; width: 18%; opacity: 0; mix-blend-mode: screen; }
@@ -24,11 +26,13 @@
 </style>
 </head>
 <body>
-<div id="stage" data-composition-id="intro-title" data-start="0" data-width="1920" data-height="1080">
+<div id="bleed">
   <div id="vignette"></div>
   <div id="edge-red" class="edge"></div>
   <div id="edge-blue" class="edge"></div>
   <div id="scan"></div>
+</div>
+<div id="stage" data-composition-id="intro-title" data-start="0" data-width="1920" data-height="1080">
   <div id="lockup">
     <div id="kicker">INMATE 4471 · LARRY</div>
     <div id="title"><span class="word">PRISON</span> <span class="word escape">ESCAPE</span></div>
@@ -50,7 +54,7 @@
       .to("#title .escape", { opacity: 0.82, duration: 0.12, repeat: -1, yoyo: true, repeatDelay: 3.4 }, 2.2)
       .to("#edge-red", { opacity: 1, duration: 0.9, repeat: -1, yoyo: true, ease: "sine.inOut" }, 0.8)
       .to("#edge-blue", { opacity: 1, duration: 0.9, repeat: -1, yoyo: true, ease: "sine.inOut", delay: 0.9 }, 0.8)
-      .fromTo("#scan", { y: 0, opacity: 0 }, { y: 1080, opacity: 1, duration: 4.5, repeat: -1, ease: "none" }, 0.5);
+      .fromTo("#scan", { y: 0, opacity: 0 }, { y: () => innerHeight, opacity: 1, duration: 4.5, repeat: -1, ease: "none" }, 0.5);
 
     window.__timelines = window.__timelines || {};
     window.__timelines["intro-title"] = tl;

@@ -12,6 +12,15 @@ export type OutcomeMode = (typeof OUTCOME_MODES)[number];
 /** Max points creativity can add (innovation 100) or remove (innovation 0) from the success chance. */
 export const CREATIVITY_POINT_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 40, 50] as const;
 
+/**
+ * Which service generates step clips.
+ * - machgen: MiniMax H3 with up to 9 reference images ($0.05/s at 480p), best character/location consistency.
+ * - masky:   Masky videos ($0.025/s at 720p, $0.015 draft); no reference images, continuity comes from
+ *            starting each clip on the previous clip's last frame.
+ */
+export const VIDEO_PROVIDERS = ["machgen", "masky"] as const;
+export type VideoProvider = (typeof VIDEO_PROVIDERS)[number];
+
 /** No-video mode: how long the scene text stays up in place of a step clip (matches the 15s clips). */
 export const SCENE_TEXT_SECS = 15;
 

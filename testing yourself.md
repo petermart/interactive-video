@@ -45,7 +45,7 @@ Open **http://localhost:3000** and click **BEGIN**. Browsers only allow sound af
 | **Success decided by** | `vibes` (the LLM judges creativity), `hybrid` (the LLM decides, guided by the numbers), or `dice` (server roll) |
 | **General success probability** / **Creativity points (±)** | Used by `hybrid` and `dice` only |
 | **Prompts till success** | Roughly how many successful steps until Larry can escape |
-| **Live LLM (GMI)** | Off = mock responses (free). On = real Gemini calls (~$0.001 each) |
+| **Live LLM (GMI)** | On by default. Off = mock responses (free), which also disables intent-key and Gemma matching in the action archive, leaving only near-identical wording as a cache hit |
 | **No video generation (text only)** | On = shows the planned scene as text for 15s instead of a clip (free). Off = real MachGen clips (**spends credits**) |
 | **Constant think** | On (default) = while waiting for the next action, always show the pre-made ultra macro "Larry thinking" loop; no per-step idle loop is generated. Off = generate a fresh 4s idle loop after each successful clip (~$0.14, ~9s) |
 | **Analysis model** | LLM 1, "Analyzing escape plan": Gemini 3.1 Flash-Lite (~2s), Gemini 3.5 Flash-Lite (~2s, default), Gemini 3.8 Flash (~6s, deep reasoning) |
@@ -86,12 +86,49 @@ If you leave or reload the page while a step is generating, the start button sho
 
 ## 8. Downloads, credits and admin
 
-- **Download your film:** the YOU FAILED and ESCAPED screens have a **DOWNLOAD YOUR FILM** button. The server stitches the intro and every generated clip in that run with ffmpeg, loops the background music underneath (35%), and downloads one MP4. Steps played without video are skipped. Exports are cached per ending.
+- **Share your film:** the YOU FAILED and ESCAPED screens stitch the run into one MP4 (intro + every generated clip, background music underneath at 35%, steps without video skipped, cached per ending) and offer keyless shares:
+  - One **SHARE** button, plus a `⋯` menu. On a phone (any browser that can put a file in the OS share sheet) the button opens the native sheet with the real MP4 attached — the only keyless route to Instagram and TikTok. On desktop it opens the menu instead.
+  - The menu is a horizontal carousel of platform icons (mouse wheel scrolls it sideways) — six link composers, then Instagram/TikTok/YouTube marked ↓ because they need a manual upload — with Copy link and the two downloads as chips underneath.
+  - The 9:16 cut is a second ffmpeg pass (720×1280, blurred fill), so it is only rendered when something asks for it: a phone share, an Instagram/TikTok save, or the 9:16 download. Desktop outcome screens only wait for the landscape stitch. It renders single-threaded with the blur done on a thumbnail-sized copy, because a 1080×1920 multi-threaded x264 encode gets OOM-killed on the deploy container.
+  - Each ending gets a page at `/s/<nodeId>` with Open Graph and Twitter player tags, a poster frame and a player, plus a link back into the game. Social platforms must be able to fetch it, so links only work for real when the server is public (Railway); on localhost the UI says so.
+- **Rewatch:** the outcome screens and the idle HUD have a rewatch control that replays the last clip and then re-runs the YOU FAILED / ESCAPED graphics with their normal timing.
 - **Credits:** in the admin panel, enter the admin password (`hackathon`; only its SHA-256 hash is stored in `src/server/credits.ts`) to see:
   - **MachGen**: live balance from MachGen's billing API.
   - **GMI Cloud**: an **estimate**, because GMI's balance API only works with a console login: `GMI_BALANCE_BASELINE` (update it from the GMI console) minus the LLM spend logged since then.
 - **Auto-pause:** when MachGen drops below **$10**, steps run without generating video and a small red banner tells players to notify the administrator.
 - **Debug history** is scoped to your browser session: each tab session gets a new UUID, and ☰ only shows that session's steps.
+
+## 9. Action archive (clip reuse)
+
+Every generated step clip is saved to SQLite (`action_clips`), keyed by **the environment the viewer was in**, the
+**outcome**, and the action. A later viewer trying the same thing there gets the saved clip instead of a paid generation.
+
+A hit replays the whole decision, not just the video: the archived row carries the **verdict** (allowed or rejected),
+the **outcome** (success / fail / escaped), the **fail type**, the **destination environment** and the story beat, so
+**both LLM calls and the generation are skipped**. Rejections are archived too, so "grow wings" costs nothing the second
+time. Note this makes repeats deterministic: the same action in the same room replays the archived result rather than
+being re-judged.
+
+Lookup order, cheapest first:
+
+0. **Words / Gemma before LLM 1.** The archive is searched on the raw text first, so a known action never reaches the
+   analysis or shot-writer calls at all.
+1. **Intent key (indexed, instant).** After LLM 1 runs (only on a miss) it returns `intentKey`, a canonical
+   `verb:tool:target:destination` (e.g. `pry:spoon:vent-grate:air-vents`). Differently worded attempts that mean the same
+   thing produce the same key, so "jimmy the air duct cover open using my cutlery" matches "unscrew the vent with my
+   spoon" with no extra call. Keys are normalised part by part, so spacing and punctuation don't split them.
+2. **Word overlap.** Content words are compared (stopwords stripped, plurals folded); 0.75+ reuses immediately.
+3. **Lite Gemma** (`google/gemma-4-26b-a4b-it`, ~$0.0005) judges the shortlist. When nothing scores well it still sweeps
+   up to 6 clips from that location, which catches synonyms, **but only while that location holds ≤40 clips**; past that a
+   weak score means a genuinely new idea.
+4. **Miss?** Generate as normal and save it for the next viewer.
+
+**Archive size:** each location keeps its 30 most-reused clips per outcome; older unused rows are pruned on save. Rows
+only, the mp4 files stay in the clip cache.
+
+**Admin:** *Reuse archived actions* turns the whole thing off. *Display whether video is freshly generated or cached*
+(off by default) shows a **CACHED** or **GENERATED** badge in the top-left while a step plays. The credits section shows
+archive size, reuse count and the generation cost skipped. Every hit and miss is logged to the debug drawer.
 
 ## 9. Deploying (Railway, Docker)
 
@@ -107,7 +144,7 @@ The app needs a long-running server, ffmpeg and a disk, so it deploys as a Docke
    | `GMI_API_KEY` | your GMI key |
    | `ELEVENLABS_API_KEY` | optional |
 5. **Networking → Generate Domain** to get a public URL. Railway sets `PORT` for you.
-6. Open the site, then in the admin panel turn on **Live LLM** and (optionally) turn off **No video generation**. A fresh volume starts with both off.
+6. Open the site, then in the admin panel decide whether to turn off **No video generation**. Settings live on the volume, so changing a default in `config.ts` does not move an instance that already has a settings file — `PUT /api/settings` or the admin panel does.
 
 Local production-mode check (no Docker needed):
 ```bash

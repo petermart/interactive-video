@@ -2,6 +2,9 @@ import type { Settings } from "../server/config";
 import type { Job, StoryNode } from "../server/pipeline";
 import { apiFetch } from "./viewer";
 
+/** Settings plus whether this server has a Masky key configured. */
+export type SettingsView = Settings & { maskyAvailable: boolean };
+
 export type { Job, Settings, StoryNode };
 
 const json = async <T,>(res: Response): Promise<T> => {
@@ -11,9 +14,9 @@ const json = async <T,>(res: Response): Promise<T> => {
 };
 
 export const api = {
-  settings: () => apiFetch("/api/settings").then(r => json<Settings>(r)),
+  settings: () => apiFetch("/api/settings").then(r => json<SettingsView>(r)),
   saveSettings: (patch: Partial<Settings>) =>
-    apiFetch("/api/settings", { method: "PUT", body: JSON.stringify(patch) }).then(r => json<Settings>(r)),
+    apiFetch("/api/settings", { method: "PUT", body: JSON.stringify(patch) }).then(r => json<SettingsView>(r)),
   session: () => apiFetch("/api/session", { method: "POST" }).then(r => json<{ root: StoryNode; music: string | null; thinkingLoop: string }>(r)),
   direct: (fromNodeId: string, direction: string) =>
     apiFetch("/api/direct", { method: "POST", body: JSON.stringify({ fromNodeId, direction }) }).then(r =>

@@ -69,7 +69,7 @@ export function DebugPanel() {
       </button>
 
       {open && (
-        <aside className="absolute bottom-0 right-0 top-0 z-50 flex w-full max-w-xl flex-col border-l border-white/10 bg-black/90 font-mono text-xs text-white/80 backdrop-blur-md">
+        <aside className="absolute bottom-0 right-0 top-0 z-50 flex w-full max-w-xl select-text flex-col border-l border-white/10 bg-black/90 font-mono text-xs text-white/80 backdrop-blur-md">
           <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div>
               <div className="font-display text-sm font-semibold tracking-[0.3em] text-teal">DEBUG // UNDER THE HOOD</div>
@@ -154,14 +154,25 @@ function EventItem({ event: e }: { event: EventRow }) {
 }
 
 function Json({ title, text }: { title: string; text: string }) {
+  const [copied, setCopied] = useState(false);
   let pretty = text;
   try {
     pretty = JSON.stringify(JSON.parse(text), null, 2);
   } catch {}
+  const copy = async () => {
+    await navigator.clipboard.writeText(pretty);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
   return (
     <div>
-      <div className="text-white/40">{title}</div>
-      <pre className="mt-0.5 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-black/60 p-2 text-[11px] text-white/70">
+      <div className="flex items-center justify-between text-white/40">
+        <span>{title}</span>
+        <button onClick={copy} className="px-1 text-teal hover:underline">
+          {copied ? "copied" : "copy"}
+        </button>
+      </div>
+      <pre className="mt-0.5 max-h-64 select-text overflow-auto whitespace-pre-wrap break-words rounded bg-black/60 p-2 text-[11px] text-white/70">
         {pretty}
       </pre>
     </div>

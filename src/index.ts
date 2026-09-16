@@ -1,10 +1,11 @@
 import { serve } from "bun";
 import { existsSync } from "node:fs";
 import index from "./index.html";
-import { CACHE_DIR, EXPORT_DIR, getSettings, MEDIA_DIR, ROOT, updateSettings } from "./server/config";
+import { CACHE_DIR, EXPORT_DIR, FRAMES_DIR, getSettings, maskyAvailable, MEDIA_DIR, publicBaseUrl, ROOT, updateSettings } from "./server/config";
 import { checkAdminPassword, creditsReport, MACHGEN_MIN_BALANCE_USD, videoGenerationAllowed } from "./server/credits";
 import { jobContext, jobEvents, looseEvents, recentJobs } from "./server/db";
 import { exportFilm } from "./server/export";
+import { shareInfo, sharePage } from "./server/share";
 import { createSession, getJob, getNode, startDirection } from "./server/pipeline";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -32,12 +33,14 @@ const server = serve({
     // Generated clips and exports live in writable storage (a volume in deployment); the rest is committed media.
     "/media/cache/*": staticFrom(CACHE_DIR, "/media/cache/"),
     "/media/exports/*": staticFrom(EXPORT_DIR, "/media/exports/"),
+    // Public so external generators (Masky) can fetch a first/last frame by URL.
+    "/media/frames/*": staticFrom(FRAMES_DIR, "/media/frames/"),
     "/media/*": staticFrom(MEDIA_DIR, "/media/"),
     "/hyperframes/*": staticFrom(`${ROOT}hyperframes`, "/hyperframes/"),
 
     "/api/settings": {
-      GET: () => Response.json(getSettings()),
-      PUT: async req => Response.json(await updateSettings(await req.json())),
+      GET: () => Response.json({ ...getSettings(), maskyAvailable: maskyAvailable() }),
+      PUT: async req => Response.json({ ...(await updateSettings(await req.json())), maskyAvailable: maskyAvailable() }),
     },
 
     "/api/session": {
@@ -63,6 +66,44 @@ const server = serve({
         if (!checkAdminPassword(password)) return Response.json({ error: "Wrong password" }, { status: 401 });
         return Response.json(await creditsReport());
       },
+    },
+
+    /**
+     * Publishes an image (e.g. a clip's last frame) at a public URL. Used by a local dev server to give
+     * Masky a fetchable first-frame URL. Password-protected: it writes to this server's disk.
+     */
+    "/api/frames": {
+      POST: async req => {
+        if (!checkAdminPassword(req.headers.get("x-admin-password"))) return Response.json({ error: "Wrong password" }, { status: 401 });
+        const bytes = await req.arrayBuffer();
+        if (!bytes.byteLength || bytes.byteLength > 12_000_000) return Response.json({ error: "Empty or oversized image" }, { status: 400 });
+        const ext = (req.headers.get("content-type") ?? "").includes("jpeg") ? "jpg" : "png";
+        const id = `${crypto.randomUUID()}.${ext}`;
+        await Bun.write(`${FRAMES_DIR}/${id}`, bytes);
+        const base = publicBaseUrl() ?? new URL(req.url).origin;
+        return Response.json({ url: `${base}/media/frames/${id}` });
+      },
+    },
+
+    // Public share page for one ending: the card social platforms scrape, plus a player.
+    "/s/:id": async req => {
+      try {
+        return new Response(await sharePage(req.params.id, new URL(req.url).origin), {
+          headers: { "content-type": "text/html;charset=utf-8" },
+        });
+      } catch (err) {
+        return new Response(`Not found: ${(err as Error)?.message}`, { status: 404 });
+      }
+    },
+
+    // Share links + text for the in-game share buttons (stitches the film if needed).
+    "/api/share/:id": async req => {
+      try {
+        const vertical = new URL(req.url).searchParams.get("vertical") === "1";
+        return Response.json(await shareInfo(req.params.id, new URL(req.url).origin, { vertical }));
+      } catch (err) {
+        return Response.json({ error: String((err as Error)?.message ?? err) }, { status: 400 });
+      }
     },
 
     // Stitch the intro + every generated clip up to a node into one MP4 with the soundtrack.

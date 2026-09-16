@@ -13,15 +13,19 @@ const STORAGE_DIR = process.env.STORAGE_DIR?.replace(/\/+$/, "");
 export const CACHE_DIR = STORAGE_DIR ? `${STORAGE_DIR}/cache` : `${MEDIA_DIR}/cache`;
 export const EXPORT_DIR = STORAGE_DIR ? `${STORAGE_DIR}/exports` : `${MEDIA_DIR}/exports`;
 export const DB_FILE = STORAGE_DIR ? `${STORAGE_DIR}/debug.sqlite` : `${ROOT}data/debug.sqlite`;
+/** Frames published for other services to fetch (Masky needs public http(s) image URLs). */
+export const FRAMES_DIR = STORAGE_DIR ? `${STORAGE_DIR}/frames` : `${MEDIA_DIR}/frames`;
 const SETTINGS_FILE = STORAGE_DIR ? `${STORAGE_DIR}/settings.json` : `${ROOT}data/settings.json`;
 mkdirSync(CACHE_DIR, { recursive: true });
 mkdirSync(EXPORT_DIR, { recursive: true });
+mkdirSync(FRAMES_DIR, { recursive: true });
 
 /** Maps a served /media/... URL to its file: generated clips and exports come from storage, the rest from media/. */
 export function mediaPath(url: string | null) {
   if (!url?.startsWith("/media/")) return null;
   if (url.startsWith("/media/cache/")) return `${CACHE_DIR}/${url.slice("/media/cache/".length)}`;
   if (url.startsWith("/media/exports/")) return `${EXPORT_DIR}/${url.slice("/media/exports/".length)}`;
+  if (url.startsWith("/media/frames/")) return `${FRAMES_DIR}/${url.slice("/media/frames/".length)}`;
   return `${MEDIA_DIR}/${url.slice("/media/".length)}`;
 }
 
@@ -30,9 +34,18 @@ const keysFile = `${ROOT}keys.json`;
 const fileKeys: Record<string, string> = existsSync(keysFile) ? await Bun.file(keysFile).json() : {};
 export const keys = {
   machgen: process.env.MACHGEN_API_KEY ?? fileKeys.machgen ?? "",
+  masky: process.env.MASKY_API_KEY ?? fileKeys.masky ?? "",
   gmi: process.env.GMI_API_KEY ?? fileKeys.gmi ?? "",
   elevenlabs: process.env.ELEVENLABS_API_KEY ?? fileKeys.elevenlabs ?? "",
 };
+
+/** Public origin of this server, used to hand out frame URLs other services can fetch. */
+export const publicBaseUrl = () =>
+  process.env.PUBLIC_BASE_URL ??
+  (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null);
+
+/** Masky is only offered where a key is configured; deployments without one stay on MachGen. */
+export const maskyAvailable = () => Boolean(keys.masky);
 
 export type Character = { id: string; role: string; description: string; image: string | null };
 export type Environment = {
@@ -51,7 +64,7 @@ export type World = {
 };
 export const world = worldJson as World;
 
-import { CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, type LlmModelId, type OutcomeMode } from "./constants";
+import { CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type LlmModelId, type OutcomeMode, type VideoProvider } from "./constants";
 export { CREATIVITY_POINT_OPTIONS, OUTCOME_MODES, type OutcomeMode };
 
 export type Settings = {
@@ -61,6 +74,16 @@ export type Settings = {
   promptsTillSuccess: number; // 1-20
   liveLLM: boolean;
   liveVideo: boolean;
+  /** Which service generates step clips. */
+  videoProvider: VideoProvider;
+  /** Masky only: draft quality (cheaper, lower quality). */
+  maskyDraft: boolean;
+  /** Reuse clips other viewers generated for the same action in the same place. */
+  reuseActions: boolean;
+  /** Show a CACHED / GENERATED badge on each step, for demos and debugging. */
+  showClipSource: boolean;
+  /** Lite model that decides whether a new action matches an archived one. */
+  matchModel: string;
   /** Skip generating a per-step idle loop; always idle on the pre-made "Larry thinking" ultra macro loop. */
   constantThink: boolean;
   /** LLM 1 ("Analyzing escape plan"): speed matters most. */
@@ -74,11 +97,16 @@ const defaults: Settings = {
   successProbability: 60,
   creativityPoints: 30,
   promptsTillSuccess: 6,
-  liveLLM: false,
+  liveLLM: true,
   liveVideo: false,
+  videoProvider: "machgen",
+  maskyDraft: false,
   constantThink: true,
+  reuseActions: true,
+  showClipSource: false,
+  matchModel: "google/gemma-4-26b-a4b-it",
   analysisModel: "google/gemini-3.5-flash-lite",
-  writerModel: "google/gemini-3.8-flash",
+  writerModel: "google/gemini-3.5-flash-lite",
 };
 
 let settings: Settings = defaults;
@@ -87,7 +115,8 @@ if (existsSync(SETTINGS_FILE)) {
   settings = { ...defaults, ...saved };
 }
 
-export const getSettings = () => settings;
+export const getSettings = (): Settings =>
+  settings.videoProvider === "masky" && !maskyAvailable() ? { ...settings, videoProvider: "machgen" } : settings;
 
 export async function updateSettings(patch: Partial<Settings>) {
   const next = { ...settings, ...patch };
@@ -101,6 +130,11 @@ export async function updateSettings(patch: Partial<Settings>) {
   next.liveLLM = Boolean(next.liveLLM);
   next.liveVideo = Boolean(next.liveVideo);
   next.constantThink = Boolean(next.constantThink);
+  next.reuseActions = Boolean(next.reuseActions);
+  next.showClipSource = Boolean(next.showClipSource);
+  if (!VIDEO_PROVIDERS.includes(next.videoProvider)) next.videoProvider = settings.videoProvider;
+  if (next.videoProvider === "masky" && !maskyAvailable()) next.videoProvider = "machgen";
+  next.maskyDraft = Boolean(next.maskyDraft);
   settings = next;
   await Bun.write(SETTINGS_FILE, JSON.stringify(settings, null, 2));
   return settings;

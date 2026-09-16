@@ -8,12 +8,14 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
   #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden;
     font-family: "Chakra Petch", sans-serif; color: #fff; }
+  /* Full-window atmosphere: outside the letterboxed stage, so lights always reach the window edges. */
+  #bleed { position: fixed; inset: 0; overflow: hidden; pointer-events: none; }
   #dim { position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(40,0,4,.55) 0%, rgba(0,0,0,.9) 80%); }
   #flash { position: absolute; inset: 0; background: #ff2d3d; opacity: 0; mix-blend-mode: screen; }
   .siren { position: absolute; top: 0; bottom: 0; width: 50%; opacity: 0; mix-blend-mode: screen; }
   #s-red { left: 0; background: linear-gradient(90deg, rgba(255,45,61,.55), transparent); }
   #s-blue { right: 0; background: linear-gradient(270deg, rgba(45,107,255,.55), transparent); }
-  .tape { position: absolute; left: -10%; width: 120%; height: 70px; background: repeating-linear-gradient(-45deg, #ff2d3d 0 40px, #111 40px 80px);
+  .tape { position: absolute; left: -50%; width: 200%; height: 70px; background: repeating-linear-gradient(-45deg, #ff2d3d 0 40px, #111 40px 80px);
     box-shadow: 0 8px 30px rgba(0,0,0,.6); }
   #tape-1 { top: 250px; transform: rotate(-4deg); }
   #tape-2 { bottom: 300px; transform: rotate(3deg); }
@@ -23,15 +25,17 @@
 </style>
 </head>
 <body>
-<div id="stage" data-composition-id="failed" data-start="0" data-width="1920" data-height="1080">
+<div id="bleed">
   <div id="dim"></div>
   <div id="s-red" class="siren"></div>
   <div id="s-blue" class="siren"></div>
+  <div id="flash"></div>
+</div>
+<div id="stage" data-composition-id="failed" data-start="0" data-width="1920" data-height="1080">
   <div id="tape-1" class="tape"></div>
   <div id="tape-2" class="tape"></div>
   <div id="headline">YOU FAILED</div>
   <div id="subtitle" data-bind="subtitle">SUBJECT RE-DETAINED</div>
-  <div id="flash"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
   <script>
@@ -51,7 +55,7 @@
     window.__timelines.failed = tl;
 
     const fit = () => {
-      const s = Math.max(innerWidth / 1920, innerHeight / 1080);
+      const s = Math.min(innerWidth / 1920, innerHeight / 1080); // contain: keep all type on screen (mobile safe)
       const stage = document.getElementById("stage");
       stage.style.transform = `scale(${s})`;
       stage.style.left = `${(innerWidth - 1920 * s) / 2}px`;

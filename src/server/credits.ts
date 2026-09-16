@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { keys } from "./config";
+import { libraryStats } from "./actionCache";
 import { db, logEvent } from "./db";
 
 /** Stop generating videos automatically once MachGen drops below this balance. */
@@ -103,5 +104,6 @@ export async function creditsReport() {
       generationPaused: machgen.balanceUsd !== null && machgen.balanceUsd < MACHGEN_MIN_BALANCE_USD,
     },
     gmi: gmiEstimate(),
+    library: libraryStats(),
   };
 }

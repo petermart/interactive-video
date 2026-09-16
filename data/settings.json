@@ -5,7 +5,12 @@
   "promptsTillSuccess": 3,
   "liveLLM": true,
   "liveVideo": true,
+  "videoProvider": "machgen",
+  "maskyDraft": true,
   "constantThink": true,
+  "reuseActions": true,
+  "showClipSource": true,
+  "matchModel": "google/gemma-4-26b-a4b-it",
   "analysisModel": "google/gemini-3.8-flash",
   "writerModel": "google/gemini-3.5-flash-lite"
 }

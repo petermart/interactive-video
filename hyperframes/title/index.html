@@ -7,7 +7,10 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; }
   #stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; overflow: hidden;
-    font-family: "Chakra Petch", sans-serif; color: #fff; background: radial-gradient(ellipse at center, #0d1418 0%, #030507 75%); }
+    font-family: "Chakra Petch", sans-serif; color: #fff; }
+  /* Full-window atmosphere: outside the letterboxed stage, so lights always reach the window edges. */
+  #bleed { position: fixed; inset: 0; overflow: hidden; pointer-events: none;
+    background: radial-gradient(ellipse at center, #0d1418 0%, #030507 75%); }
   .siren { position: absolute; top: -20%; width: 70%; height: 140%; filter: blur(80px); opacity: 0; mix-blend-mode: screen; }
   #siren-red { left: -20%; background: radial-gradient(circle, #ff2d3d 0%, transparent 60%); }
   #siren-blue { right: -20%; background: radial-gradient(circle, #2d6bff 0%, transparent 60%); }
@@ -34,11 +37,13 @@
 </style>
 </head>
 <body>
-<div id="stage" data-composition-id="title" data-start="0" data-width="1920" data-height="1080">
+<div id="bleed">
   <div id="siren-red" class="siren"></div>
   <div id="siren-blue" class="siren"></div>
-  <div id="reticle"></div>
   <div class="scanlines"></div>
+</div>
+<div id="stage" data-composition-id="title" data-start="0" data-width="1920" data-height="1080">
+  <div id="reticle"></div>
   <div id="b-tl" class="bracket"></div><div id="b-tr" class="bracket"></div>
   <div id="b-bl" class="bracket"></div><div id="b-br" class="bracket"></div>
   <div id="file">CLASSIFIED // INMATE 4471</div>
@@ -76,7 +81,7 @@
 
     // Fit the 1920x1080 stage to the frame (cover).
     const fit = () => {
-      const s = Math.max(innerWidth / 1920, innerHeight / 1080);
+      const s = Math.min(innerWidth / 1920, innerHeight / 1080); // contain: keep all type on screen (mobile safe)
       const stage = document.getElementById("stage");
       stage.style.transform = `scale(${s})`;
       stage.style.left = `${(innerWidth - 1920 * s) / 2}px`;

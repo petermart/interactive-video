@@ -1,9 +1,11 @@
-import { clamp, getSettings, introMedia, world, type OutcomeMode, type Settings } from "./config";
+import { clamp, getSettings, introMedia, ROOT, world, type OutcomeMode, type Settings } from "./config";
+import { findByIntent, findReusableClip, markClipUsed, rememberClip, type CachedClip } from "./actionCache";
 import { MACHGEN_MIN_BALANCE_USD, videoGenerationAllowed } from "./credits";
 import { jobContext, loadJob, loadNode, logEvent, saveJob, saveNode } from "./db";
 import { chatJSON } from "./gmi";
 import { existsSync } from "node:fs";
 import { generateVideo, hasAsset, lastFrame, MAX_IMAGE_REFS, uploadAsset, uploadFile, type VideoRequest } from "./machgen";
+import { generateMaskyVideo } from "./masky";
 import { diagnosticSystem, writerSystem } from "./prompts";
 
 /** Step clips play out the viewer's action; loops idle on the protagonist's close-up. */
@@ -26,6 +28,8 @@ export type StoryNode = {
   loopUrl: string | null;
   /** What the shot writer planned; shown as text in no-video mode. */
   scene?: { summary: string; shotPrompt: string };
+  /** Set when this step replayed a clip another viewer generated for the same action here. */
+  reusedFrom?: string;
   lastFrameFile?: string;
 };
 
@@ -38,6 +42,8 @@ export type Diagnosis = {
   failBeat: string;
   failType: "redetained" | "dead";
   reachesExit: boolean;
+  /** Canonical "verb:tool:target:destination" form of the attempt; matches archived clips exactly. */
+  intentKey?: string;
   /** vibes/hybrid modes: the LLM's verdict. Ignored in dice mode. */
   succeeds?: boolean;
   verdictReason?: string;
@@ -170,6 +176,18 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     storySoFar: story,
   });
 
+  // Archive first: a move already filmed in this location replays with its stored verdict, destination and clip,
+  // so neither LLM call nor a generation is needed. Wording/Gemma only, since the intent key needs LLM 1.
+  if (settings.reuseActions) {
+    const known = await findReusableClip({
+      environmentId: from.environmentId,
+      direction,
+      model: settings.matchModel,
+      liveLLM: settings.liveLLM,
+    });
+    if (known && replayArchived(job, from, direction, known)) return;
+  }
+
   // LLM 1: diagnostic
   let diagnosis: Diagnosis;
   if (settings.liveLLM) {
@@ -179,8 +197,29 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     logEvent({ kind: "llm", label: "LLM 1 diagnostic · mock", request: context, response: diagnosis });
   }
   if (!diagnosis.allowed) {
-    setJob(job, "rejected", diagnosis.rejectionReason || "That can't happen here. Try something else.");
+    const reason = diagnosis.rejectionReason || "That can't happen here. Try something else.";
+    if (settings.reuseActions) {
+      rememberClip({
+        environmentId: from.environmentId,
+        outcome: "rejected",
+        direction,
+        intentKey: diagnosis.intentKey,
+        summary: reason,
+        shotPrompt: "",
+        toEnvironmentId: from.environmentId,
+        clipUrl: "",
+        provider: "none",
+        rejectionReason: reason,
+      });
+    }
+    setJob(job, "rejected", reason);
     return;
+  }
+
+  // LLM 1 produced the canonical intent key: try the archive again now that we can match on meaning exactly.
+  if (settings.reuseActions) {
+    const known = findByIntent(from.environmentId, diagnosis.intentKey);
+    if (known && replayArchived(job, from, direction, known)) return;
   }
 
   const { success, chance, roll } = decideOutcome(settings, diagnosis);
@@ -241,9 +280,34 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   };
 
   if (makeVideo) {
-    const clip = await generateVideo(await buildClipRequest(plan, from));
+    const clip =
+      settings.videoProvider === "masky"
+        ? await generateMaskyVideo({
+            prompt: plan.shotPrompt,
+            // Continuity without reference images: this clip opens on the previous clip's final frame.
+            firstFrameFile: firstFrameFor(from),
+            durationSecs: STEP_SECS,
+            draft: settings.maskyDraft,
+          })
+        : await generateVideo(await buildClipRequest(plan, from));
     node.clipUrl = clip.url;
     node.lastFrameFile = await lastFrame(clip.file);
+    if (settings.reuseActions) {
+      rememberClip({
+        environmentId: from.environmentId,
+        outcome,
+        direction,
+        intentKey: diagnosis.intentKey,
+        summary: plan.summary,
+        shotPrompt: plan.shotPrompt,
+        toEnvironmentId: node.environmentId,
+        failType: node.failType,
+        clipUrl: node.clipUrl,
+        lastFrameFile: node.lastFrameFile,
+        provider: settings.videoProvider,
+        costUsd: "creditCost" in clip ? (clip as { creditCost?: number }).creditCost : undefined,
+      });
+    }
   }
 
   // Idle loop on the closing close-up (success only)
@@ -254,14 +318,22 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   if (outcome === "success" && makeVideo && !settings.constantThink && node.lastFrameFile) {
     setJob(job, "generating-loop", "Finding his next move…");
     {
-      const frame = await uploadFile(node.lastFrameFile);
-      const loop = await generateVideo({
-        task_type: "I2V",
-        prompt: plan.loopPrompt,
-        src_image_urls: [frame, frame],
-        keyframe_indices: [0, -1],
-        durationSecs: LOOP_SECS,
-      });
+      const loop =
+        settings.videoProvider === "masky"
+          ? await generateMaskyVideo({
+              prompt: plan.loopPrompt,
+              firstFrameFile: node.lastFrameFile,
+              lastFrameFile: node.lastFrameFile, // same opening and closing frame -> seamless loop
+              durationSecs: LOOP_SECS,
+              draft: settings.maskyDraft,
+            })
+          : await generateVideo({
+              task_type: "I2V",
+              prompt: plan.loopPrompt,
+              src_image_urls: [await uploadFile(node.lastFrameFile), await uploadFile(node.lastFrameFile)],
+              keyframe_indices: [0, -1],
+              durationSecs: LOOP_SECS,
+            });
       node.loopUrl = loop.url;
     }
   }
@@ -269,6 +341,49 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   putNode(node);
   job.node = node;
   setJob(job, "done", "");
+}
+
+/**
+ * Replays an archived action: its stored verdict, destination, story beat and clip become this step, with no
+ * LLM call and no generation. Returns false when the row has no usable clip (e.g. it was saved in text-only mode).
+ */
+function replayArchived(job: Job, from: StoryNode, direction: string, known: CachedClip) {
+  if (known.outcome === "rejected") {
+    markClipUsed(known.id);
+    logEvent({ kind: "decision", label: "archived rejection replayed", response: { direction, reason: known.rejection_reason } });
+    setJob(job, "rejected", known.rejection_reason || known.summary);
+    return true;
+  }
+  if (!known.clip_url) return false;
+
+  markClipUsed(known.id);
+  const success = known.outcome !== "fail";
+  const node: StoryNode = {
+    id: crypto.randomUUID(),
+    parentId: from.id,
+    depth: success ? from.depth + 1 : from.depth,
+    environmentId: known.to_environment_id,
+    direction,
+    outcome: known.outcome,
+    failType: (known.fail_type as StoryNode["failType"]) ?? undefined,
+    summary: known.summary,
+    clipUrl: known.clip_url,
+    loopUrl: null,
+    scene: { summary: known.summary, shotPrompt: known.shot_prompt },
+    lastFrameFile: known.last_frame_file ?? undefined,
+    reusedFrom: known.direction,
+  };
+  putNode(node);
+  job.node = node;
+  job.debug = undefined;
+  logEvent({
+    kind: "decision",
+    label: `archived action replayed → ${known.outcome}`,
+    request: { direction },
+    response: { matched: known.direction, environment: known.to_environment_id, savedLlmCalls: 2 },
+  });
+  setJob(job, "done", "");
+  return true;
 }
 
 /**
@@ -297,6 +412,16 @@ export function selectReferences(plan: ShotPlan, hasPreviousFrame: boolean) {
 
 /** The intro starts and ends on this keyframe, so it stands in for the intro's last frame. */
 const INTRO_LAST_FRAME = "common-generated-assets/videos/intro-keyframe.png";
+const INTRO_LAST_FRAME_JPEG = "media/refs/common-generated-assets__videos__intro-keyframe.jpg";
+
+/** Local image file a Masky clip should open on: the previous clip's last frame, or the intro's keyframe. */
+function firstFrameFor(from: StoryNode) {
+  if (from.lastFrameFile) return from.lastFrameFile;
+  for (const candidate of [INTRO_LAST_FRAME, INTRO_LAST_FRAME_JPEG]) {
+    if (existsSync(`${ROOT}${candidate}`)) return `${ROOT}${candidate}`;
+  }
+  return null;
+}
 
 export async function buildClipRequest(plan: ShotPlan, from: StoryNode): Promise<VideoRequest> {
   const previousFrame = from.lastFrameFile
@@ -384,6 +509,7 @@ function mockDiagnosis(direction: string, settings: Settings): Diagnosis {
     rejectionReason: "",
     innovation,
     innovationNote: "[mock] longer = more innovative",
+    intentKey: "",
     succeeds,
     verdictReason: `[mock] ${settings.outcomeMode} verdict`,
     successBeat: `[mock] It works: ${direction}`,

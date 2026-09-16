@@ -9,6 +9,9 @@ type Props = {
 
 export function PromptBar({ enabled, status, placeholder, onSubmit }: Props) {
   const [text, setText] = useState("");
+  // Phone screens truncate the long prompt, so ask the short version there.
+  const narrow = typeof window !== "undefined" && window.innerWidth < 640;
+  const hint = narrow ? "What should Larry do?" : placeholder;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,7 +31,7 @@ export function PromptBar({ enabled, status, placeholder, onSubmit }: Props) {
           onChange={e => setText(e.target.value)}
           disabled={!enabled}
           maxLength={500}
-          placeholder={enabled ? placeholder : status || "…"}
+          placeholder={enabled ? hint : status || "…"}
           className="w-full rounded-md border border-white/15 bg-white/5 px-4 py-3 font-mono text-base text-white placeholder-white/40 outline-none backdrop-blur transition focus:border-sodium disabled:opacity-60"
         />
         {!enabled && status && (
@@ -38,7 +41,7 @@ export function PromptBar({ enabled, status, placeholder, onSubmit }: Props) {
       <button
         type="submit"
         disabled={!enabled || !text.trim()}
-        className="rounded-md bg-sodium px-6 py-3 font-display font-bold tracking-widest text-black transition hover:bg-orange-300 disabled:cursor-not-allowed disabled:opacity-40"
+        className="rounded-md bg-sodium px-4 py-3 font-display text-sm font-bold tracking-widest text-black transition hover:bg-orange-300 disabled:cursor-not-allowed disabled:opacity-40 sm:px-6 sm:text-base"
       >
         PROMPT
       </button>

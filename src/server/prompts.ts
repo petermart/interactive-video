@@ -30,6 +30,12 @@ REJECT (allowed=false) any direction that:
 The protagonist CAN act on the world: talk, persuade, bribe, trick, sneak, fight, craft tools, use objects that plausibly exist in the current environment, or move to a neighboring environment.
 rejectionReason must be one short, friendly, in-world sentence telling the viewer why and nudging them to try again.
 
+If allowed, write intentKey: a canonical, lowercase "verb:tool:target:destination" summary of the attempt, using
+hyphens inside a part and "none" where a part does not apply. Two differently worded attempts that mean the same thing
+must produce the SAME key: "unscrew the vent with my spoon" and "pry the air vent open using the spoon" are both
+"pry:spoon:vent-grate:air-vents"; "faking a seizure" and "pretend to have a heart attack" are both
+"fake:none:illness:hall-main". Use the environment ids from the catalog for destination.
+
 If allowed, score INNOVATION 0-100: how clever, surprising and cinematic the idea is (obvious or lazy = low, clever use of the environment = high).
 ${verdictRules[settings.outcomeMode]}
 verdictReason: one short sentence explaining the verdict (for the admin panel).
@@ -42,7 +48,7 @@ reachesExit: true only if success would plausibly take him fully out of the pris
 ${bible()}
 
 Respond with JSON only:
-{"allowed":boolean,"rejectionReason":string,"innovation":number,"innovationNote":string,"successBeat":string,"failBeat":string,"failType":"redetained"|"dead","reachesExit":boolean,"succeeds":boolean|null,"verdictReason":string}`;
+{"allowed":boolean,"rejectionReason":string,"innovation":number,"innovationNote":string,"successBeat":string,"failBeat":string,"failType":"redetained"|"dead","reachesExit":boolean,"succeeds":boolean|null,"verdictReason":string,"intentKey":string}`;
 
 export const writerSystem = () => `You are the cinematographer of "Prison Escape", an interactive anime prison-break film.
 Write ONE MiniMax H3 video prompt for a 15-second, 16:9, multi-shot clip that plays out the given beat.

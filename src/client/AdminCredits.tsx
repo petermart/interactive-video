@@ -4,6 +4,7 @@ import { apiFetch } from "./viewer";
 type Report = {
   machgen: { balanceUsd: number | null; minBalanceUsd: number; generationPaused: boolean; pendingTasks: number; runningTasks: number; error?: string };
   gmi: { estimatedUsd: number; baselineUsd: number; baselineAt: string; spentSinceBaselineUsd: number; costedCalls: number };
+  library: { clips: number; reuses: number; saved_usd: number | null } | null;
 };
 
 const PW_KEY = "prison-escape:admin-password";
@@ -96,6 +97,17 @@ export function AdminCredits() {
           {machgen.error && ` · ${machgen.error}`}
         </div>
       </div>
+      {report.library && (
+        <div className="rounded border border-white/10 p-2">
+          <div className="flex justify-between">
+            <span>Action archive</span>
+            <b className="text-teal">{report.library.clips} clips</b>
+          </div>
+          <div className="text-xs text-white/40">
+            Reused {report.library.reuses} times · ~${(report.library.saved_usd ?? 0).toFixed(2)} of generation skipped
+          </div>
+        </div>
+      )}
       <div className="rounded border border-white/10 p-2">
         <div className="flex justify-between">
           <span>GMI Cloud (LLM)</span>

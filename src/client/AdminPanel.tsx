@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
-import { CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, type LlmModelId, type OutcomeMode } from "../server/constants";
+import { CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type LlmModelId, type OutcomeMode, type VideoProvider } from "../server/constants";
 import { AdminCredits } from "./AdminCredits";
-import { api, type Job, type Settings } from "./api";
+import { api, type Job, type Settings, type SettingsView } from "./api";
+
+const PROVIDER_HELP: Record<VideoProvider, string> = {
+  machgen: "MiniMax H3 480p, 9 reference images, ~$0.75 per 15s step.",
+  masky: "Masky 720p, continuity from the previous clip's last frame, ~$0.38 per 15s step.",
+};
 
 const MODE_HELP: Record<OutcomeMode, string> = {
   vibes: "LLM judges creativity + plausibility. Numbers below are ignored.",
@@ -11,7 +16,7 @@ const MODE_HELP: Record<OutcomeMode, string> = {
 
 export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
   const [open, setOpen] = useState(false);
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [settings, setSettings] = useState<SettingsView | null>(null);
 
   useEffect(() => {
     api.settings().then(setSettings);
@@ -108,6 +113,38 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
               label="No video generation (text only)"
               checked={!settings.liveVideo}
               onChange={v => save({ liveVideo: !v })}
+            />
+            {settings.maskyAvailable && (
+            <div>
+              <div className="text-white/70">Video provider</div>
+              <div className="mt-1 grid grid-cols-2 overflow-hidden rounded border border-white/15">
+                {VIDEO_PROVIDERS.map(provider => (
+                  <button
+                    key={provider}
+                    onClick={() => save({ videoProvider: provider })}
+                    className={`py-1.5 text-xs uppercase tracking-widest transition ${
+                      settings.videoProvider === provider ? "bg-teal font-semibold text-black" : "text-white/60 hover:bg-white/10"
+                    }`}
+                  >
+                    {provider}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-white/40">{PROVIDER_HELP[settings.videoProvider]}</p>
+            </div>
+            )}
+            {settings.maskyAvailable && settings.videoProvider === "masky" && (
+              <Toggle label="Masky draft quality (cheaper)" checked={settings.maskyDraft} onChange={v => save({ maskyDraft: v })} />
+            )}
+            <Toggle
+              label="Reuse archived actions (skip paid re-generation)"
+              checked={settings.reuseActions}
+              onChange={v => save({ reuseActions: v })}
+            />
+            <Toggle
+              label="Display whether video is freshly generated or cached"
+              checked={settings.showClipSource}
+              onChange={v => save({ showClipSource: v })}
             />
             <Toggle
               label="Constant think (reuse Larry macro loop)"

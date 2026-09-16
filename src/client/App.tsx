@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AdminPanel } from "./AdminPanel";
 import { CreditsBanner } from "./CreditsBanner";
-import { DownloadFilmButton } from "./DownloadFilmButton";
+import { ShareBar } from "./ShareBar";
 import { DebugPanel } from "./DebugPanel";
 import { GeneratingHud } from "./GeneratingHud";
 import { api, type Job, type StoryNode } from "./api";
@@ -70,8 +70,17 @@ export function App() {
   const [creditsExhausted, setCreditsExhausted] = useState(false);
   const [lastDebug, setLastDebug] = useState<Job["debug"] | null>(null);
   const [resume, setResume] = useState<Pending | null>(null);
+  const [showClipSource, setShowClipSource] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const musicRef = useRef<HTMLAudioElement>(null);
+  const musicGain = useRef<AudioContext | null>(null);
+  const musicWanted = useRef(false);
+
+  // The badge is an admin display option, so re-read it whenever a step finishes.
+  const refreshDisplaySettings = () => api.settings().then(s => setShowClipSource(s.showClipSource)).catch(() => {});
+  useEffect(() => {
+    refreshDisplaySettings();
+  }, []);
 
   useEffect(() => {
     api.session().then(async s => {
@@ -100,6 +109,50 @@ export function App() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
+  /**
+   * Starts the soundtrack under the clips' diegetic sound (clips are generated with "No music").
+   * iOS ignores HTMLMediaElement.volume, so there the level has to come from a Web Audio gain node;
+   * everywhere else the plain element path is left alone.
+   */
+  const startMusic = () => {
+    const el = musicRef.current;
+    if (!el) return;
+    musicWanted.current = true;
+    el.volume = MUSIC_VOLUME;
+    if (Math.abs(el.volume - MUSIC_VOLUME) > 0.01 && !musicGain.current) {
+      try {
+        const ctx = new AudioContext();
+        const gain = ctx.createGain();
+        gain.gain.value = MUSIC_VOLUME;
+        ctx.createMediaElementSource(el).connect(gain).connect(ctx.destination);
+        musicGain.current = ctx;
+      } catch {
+        /* no Web Audio: fall back to the element at its own level */
+      }
+    }
+    musicGain.current?.resume().catch(() => {});
+    el.play().catch(() => {});
+  };
+
+  // iOS hands the audio session to a <video> that starts playing, which pauses the soundtrack; browsers also
+  // stall media in background tabs. Pick it back up on the next tap or when the page comes back.
+  useEffect(() => {
+    const resume = () => {
+      const el = musicRef.current;
+      if (!musicWanted.current || !el || document.hidden) return;
+      musicGain.current?.resume().catch(() => {});
+      if (el.paused) el.play().catch(() => {});
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("pointerdown", resume);
+    const tick = setInterval(resume, 4000);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("pointerdown", resume);
+      clearInterval(tick);
+    };
+  }, [music]);
+
   const playVideo = (src: string | null, loop: boolean) => {
     const v = videoRef.current;
     if (!v || !src) return;
@@ -110,11 +163,7 @@ export function App() {
 
   const start = async () => {
     if (!root) return;
-    // Soundtrack sits under the clips' diegetic sound (clips are generated with "No music").
-    if (musicRef.current) {
-      musicRef.current.volume = MUSIC_VOLUME;
-      musicRef.current.play().catch(() => {});
-    }
+    startMusic();
     if (resume) {
       const [from, savedRoot] = await Promise.all([api.node(resume.fromNodeId), api.node(resume.rootId)]).catch(() => [null, null]);
       if (from) {
@@ -145,6 +194,22 @@ export function App() {
     // Steps without their own loop (e.g. no-video mode) idle on the silent "Larry thinking" macro loop.
     playVideo(node.loopUrl ?? thinkingLoop, true);
   };
+
+  /**
+   * Replays the last step from the beginning. onEnded then routes back to the outcome screen, which remounts
+   * the HyperFrames overlay, so "YOU FAILED" / "ESCAPED" animate again with their normal timing.
+   */
+  const rewatchLast = () => {
+    if (!playing || playing.outcome === "intro") return;
+    if (playing.clipUrl) {
+      setPhase("clip");
+      playVideo(playing.clipUrl, false);
+    } else if (playing.scene) {
+      setPhase("scene");
+    }
+  };
+
+  const canRewatch = Boolean(playing && playing.outcome !== "intro" && (playing.clipUrl || playing.scene));
 
   const onEnded = () => {
     // A non-looping intro can end while a direction is being processed; don't yank the viewer back to idle.
@@ -197,6 +262,7 @@ export function App() {
         if (job.status === "error") throw new Error(job.message);
         if (job.status === "done" && job.node) {
           writePending(null);
+          refreshDisplaySettings();
           setPlaying(job.node);
           if (job.node.clipUrl) {
             setPhase("clip");
@@ -246,7 +312,7 @@ export function App() {
           <button
             onClick={start}
             disabled={!root}
-            className="absolute bottom-16 left-1/2 z-10 -translate-x-1/2 rounded-md border border-sodium/60 bg-black/60 px-10 py-4 font-display text-xl font-bold tracking-[0.4em] text-sodium backdrop-blur transition hover:bg-sodium hover:text-black"
+            className="absolute bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md border border-sodium/60 bg-black/60 px-8 py-3 font-display text-lg font-bold tracking-[0.35em] text-sodium backdrop-blur transition hover:bg-sodium hover:text-black sm:bottom-16 sm:px-10 sm:py-4 sm:text-xl"
           >
             {resume ? "RESUME" : "BEGIN"}
           </button>
@@ -262,17 +328,17 @@ export function App() {
       {phase === "scene" && playing && <SceneText node={playing} onDone={onEnded} />}
 
       {phase === "failed" && (
-        <div className="absolute inset-0 z-20">
+        <div className="absolute inset-0 z-20 bg-black/60">
           <HyperFrame name="failed" bind={failedBind} />
           <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 flex-col items-center gap-4">
-            {playing && (
-              <DownloadFilmButton
-                nodeId={playing.id}
-                outcome="failed"
-                className="border-sodium/70 bg-black/70 text-sodium hover:bg-sodium hover:text-black"
-              />
-            )}
-          <div className="flex gap-4">
+            {playing && <ShareBar nodeId={playing.id} outcome="failed" accent="border-sodium/70 bg-black/70 text-sodium hover:bg-sodium hover:text-black" />}
+          <div className="flex flex-wrap justify-center gap-3">
+            <button
+              onClick={rewatchLast}
+              className="rounded-md border border-white/20 bg-black/70 px-6 py-3 font-display font-semibold tracking-widest text-white backdrop-blur hover:border-teal hover:text-teal"
+            >
+              REWATCH
+            </button>
             <button
               onClick={retryLastStep}
               className="rounded-md border border-white/20 bg-black/70 px-6 py-3 font-display font-semibold tracking-widest text-white backdrop-blur hover:border-sodium hover:text-sodium"
@@ -293,14 +359,14 @@ export function App() {
       {phase === "escaped" && (
         <div className="absolute inset-0 z-20 bg-black/40">
           <HyperFrame name="escaped" />
-          <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 items-start gap-4">
-            {playing && (
-              <DownloadFilmButton
-                nodeId={playing.id}
-                outcome="escaped"
-                className="border-[#3dff7a] bg-[#3dff7a] text-black hover:bg-[#3dff7a]/80"
-              />
-            )}
+          <div className="absolute bottom-10 left-1/2 flex -translate-x-1/2 flex-col items-center gap-4">
+            {playing && <ShareBar nodeId={playing.id} outcome="escaped" accent="border-[#3dff7a] bg-[#3dff7a] text-black hover:bg-[#3dff7a]/80" />}
+            <button
+              onClick={rewatchLast}
+              className="rounded-md border border-white/30 bg-black/70 px-6 py-3 font-display font-semibold tracking-[0.3em] text-white backdrop-blur hover:border-[#3dff7a] hover:text-[#3dff7a]"
+            >
+              REWATCH
+            </button>
             <button
               onClick={retryBeginning}
               className="rounded-md border border-[#3dff7a]/70 bg-black/70 px-8 py-3 font-display font-semibold tracking-[0.3em] text-[#3dff7a] backdrop-blur hover:bg-[#3dff7a] hover:text-black"
@@ -312,8 +378,23 @@ export function App() {
       )}
 
       {phase !== "start" && (
-        <div className="absolute left-5 top-5 z-30 font-mono text-xs tracking-widest text-white/50">
-          ESCAPE PROGRESS · STEP {current?.depth ?? 0}
+        <div className="absolute left-5 top-5 z-30 flex items-center gap-3 font-mono text-xs tracking-widest text-white/50">
+          <span>ESCAPE PROGRESS · STEP {current?.depth ?? 0}</span>
+          {showClipSource && playing && playing.outcome !== "intro" && (
+            <span
+              className={`rounded border px-2 py-1 ${
+                playing.reusedFrom ? "border-teal/50 text-teal" : "border-sodium/50 text-sodium"
+              }`}
+              title={playing.reusedFrom ? `Archived clip, first filmed for: ${playing.reusedFrom}` : "Generated for this run"}
+            >
+              {playing.reusedFrom ? "CACHED" : "GENERATED"}
+            </span>
+          )}
+          {phase === "idle" && canRewatch && (
+            <button onClick={rewatchLast} className="rounded border border-white/20 px-2 py-1 text-white/70 hover:border-teal hover:text-teal">
+              ↺ REWATCH LAST CLIP
+            </button>
+          )}
         </div>
       )}
 
