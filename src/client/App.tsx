@@ -191,7 +191,7 @@ export function App() {
   const goIdle = (node: StoryNode) => {
     setCurrent(node);
     setPhase("idle");
-    // Steps without their own loop (e.g. no-video mode) idle on the silent "Larry thinking" macro loop.
+    // Steps without their own loop (e.g. no-video mode) idle on the silent "Sloppy Joe thinking" macro loop.
     playVideo(node.loopUrl ?? thinkingLoop, true);
   };
 
@@ -289,8 +289,8 @@ export function App() {
   const retryBeginning = () => root && playIntro(root);
 
   const atStart = current?.parentId === null;
-  const questionText = atStart ? "WHAT SHOULD LARRY DO?" : "WHAT SHOULD LARRY DO NEXT?";
-  const placeholder = atStart ? "Larry's in his cell. What should Larry do?" : "What should Larry do next?";
+  const questionText = atStart ? "WHAT SHOULD SLOPPY JOE DO?" : "WHAT SHOULD SLOPPY JOE DO NEXT?";
+  const placeholder = atStart ? "Sloppy Joe's in his cell. What should Sloppy Joe do?" : "What should Sloppy Joe do next?";
 
   const failedBind = {
     subtitle: playing?.failType === "dead" ? "SUBJECT TERMINATED" : "SUBJECT RE-DETAINED",
@@ -316,6 +316,15 @@ export function App() {
           >
             {resume ? "RESUME" : "BEGIN"}
           </button>
+          {/* Opens in its own tab: leaving the start screen would drop an offered RESUME. */}
+          <a
+            href="/about"
+            target="_blank"
+            rel="noreferrer"
+            className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 font-mono text-xs tracking-[0.3em] text-white/70 underline decoration-white/25 underline-offset-4 transition hover:text-teal hover:decoration-teal sm:bottom-7"
+          >
+            ABOUT
+          </a>
         </div>
       )}
 

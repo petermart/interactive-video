@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { keys } from "./config";
 import { libraryStats } from "./actionCache";
 import { db, logEvent } from "./db";
+import { storageUsage } from "./storage";
 
 /** Stop generating videos automatically once MachGen drops below this balance. */
 export const MACHGEN_MIN_BALANCE_USD = 10;
@@ -105,5 +106,7 @@ export async function creditsReport() {
     },
     gmi: gmiEstimate(),
     library: libraryStats(),
+    // Projected Cloudflare usage, always reported so the number is visible before it becomes a problem.
+    storage: storageUsage(),
   };
 }

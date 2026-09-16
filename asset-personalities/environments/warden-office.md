@@ -31,5 +31,5 @@ None
 - Study the aerial photo for routes
 - Out the window to the roof
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Crane catches him in the act (often deadly)

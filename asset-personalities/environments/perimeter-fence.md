@@ -4,7 +4,7 @@ Double razor-wire perimeter fence, guard tower, searchlights, dogs. Exit candida
 **Security:** extreme · **Steps to nearest exit:** 0 (this is an exit candidate) · **Neighbors:** yard, rooftop, guard-tower
 
 ## Personality
-The final wall. Two fences, a tower and a dog between Larry and the forest.
+The final wall. Two fences, a tower and a dog between Sloppy Joe and the forest.
 
 ## Guards present
 Hawk (tower), Dana Reyes & Kaiser (patrol road)
@@ -36,6 +36,6 @@ None
 - Scent-masked to beat Kaiser
 - Blind Hawk with a mirror
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Floodlight exposure (often fatal)
 - Kaiser tracks him down

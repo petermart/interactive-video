@@ -34,6 +34,6 @@ Rizzo, Maya Lin
 - Detergent to mask scent from Kaiser
 - Sheet rope
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Trapped in a dryer
 - Linen cart searched at the dock

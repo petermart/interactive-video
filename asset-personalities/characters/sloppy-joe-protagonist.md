@@ -1,4 +1,4 @@
-# Larry
+# Sloppy Joe
 id: `protagonist` · Protagonist (inmate 4471)
 
 ## Personality
@@ -13,10 +13,10 @@ Reckless when cornered, trusts too fast, not strong enough to win a straight fig
 ## Usually found in
 - cell-block-a (start)
 
-## How they can help Larry
+## How they can help Sloppy Joe
 n/a (the viewer controls him)
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Plausible: sneaking, climbing, squeezing through vents, lock-picking with the sharpened spoon, bluffing, bribing with contraband, starting distractions, persuading other inmates.
 - Implausible: out-fighting groups of guards, superhuman strength, knowing codes he never saw.
 

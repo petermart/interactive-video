@@ -34,6 +34,6 @@ Wren, Big Oso, Sarge Whitaker
 - Time Finch's patrol loop
 - Wren's rope to reach the skylight
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Running on the catwalk (noise)
 - Being spotted across the open tier

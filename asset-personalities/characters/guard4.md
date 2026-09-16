@@ -15,10 +15,10 @@ Falls asleep after lunch, can be bribed with food, the key ring jangles loudly a
 - kitchen
 - guard-station
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Unknowingly: his keys open most interior doors.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Pickpocketing keys while he dozes.
 - Bribing with kitchen desserts.
 - Distracting him with gossip.

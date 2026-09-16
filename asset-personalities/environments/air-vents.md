@@ -33,6 +33,6 @@ Wren scouts here
 - Follow Maya's map
 - Eavesdrop on guards below for codes
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Clanging metal
 - Vent collapses into a guarded room

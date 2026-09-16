@@ -34,6 +34,6 @@ None
 - Steal a radio to track patrols
 - Open a distant gate as a distraction
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Walking in while Cross is present
 - Pressing the wrong release (alarm)

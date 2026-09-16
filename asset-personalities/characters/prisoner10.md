@@ -15,10 +15,10 @@ Show-off; takes unnecessary risks.
 - air-vents
 - rooftop
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Scouts vents, lowers a bedsheet rope, picks pockets, teaches a climbing route to the rooftop.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Challenging her to a race.
 - Using her bedsheet rope.
 

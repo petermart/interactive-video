@@ -1,6 +1,9 @@
+import { rmSync } from "node:fs";
+import { mediaPath } from "./config";
 import { db, logEvent } from "./db";
 import { chatJSON } from "./gmi";
 import type { Outcome } from "./pipeline";
+import { deleteObject, isGeneratedUrl, keyForMediaUrl, r2Enabled } from "./storage";
 
 /**
  * Reusable library of already-generated clips, keyed by the environment a viewer is standing in and the
@@ -41,8 +44,11 @@ try {
 db.exec(`CREATE INDEX IF NOT EXISTS action_clips_intent ON action_clips(environment_id, outcome, intent_key)`);
 db.exec(`CREATE INDEX IF NOT EXISTS action_clips_env ON action_clips(environment_id)`);
 
-/** Keeps the archive from growing without bound: most-reused clips per location survive. */
-const MAX_PER_LOCATION = 30;
+/**
+ * Keeps the archive from growing without bound: most-reused clips per location survive.
+ * At 50 across the world's locations this is roughly 2GB of stored clips, well inside the R2 free tier.
+ */
+const MAX_PER_LOCATION = 50;
 /** Past this many clips in one location, a weak word score means a genuinely new idea, so skip the Gemma sweep. */
 const FALLBACK_ARCHIVE_LIMIT = 40;
 
@@ -65,7 +71,7 @@ const normalizeIntent = (key: string | undefined) =>
 const STOP = new Set(
   `a an and the to at in on of for with his her its my your their into onto out off up down then than that this those
    these is are was were be being been do does did doing go goes going get gets got try tries trying use uses using
-   make makes making take takes taking larry he him himself i we you it there here now just very really so as by from
+   make makes making take takes taking sloppy joe larry he him himself i we you it there here now just very really so as by from
    over under after before while when if but or not no yes can could should would will shall may might must`
     .split(/\s+/)
     .filter(Boolean),
@@ -273,17 +279,45 @@ export function rememberClip(c: {
   });
 }
 
-/** Drops the least-used clips once a location exceeds the cap (rows only; the mp4 files stay on disk). */
+/**
+ * Drops the least-used clips once a location exceeds the cap, deleting the stored video along with the row.
+ *
+ * This used to delete rows only, which leaked every pruned clip: the file stayed in storage with nothing
+ * left pointing at it, and on the deploy volume that eventually filled the disk and broke generation.
+ */
 function prune(environmentId: string, outcome: Outcome | "rejected") {
-  const removed = db
-    .query(
-      `DELETE FROM action_clips WHERE id IN (
-         SELECT id FROM action_clips WHERE environment_id = ? AND outcome = ?
-         ORDER BY uses DESC, id DESC LIMIT -1 OFFSET ?
-       )`,
+  const doomed = db
+    .query<{ id: number; clip_url: string }, [string, string, number]>(
+      `SELECT id, clip_url FROM action_clips WHERE environment_id = ? AND outcome = ?
+       ORDER BY uses DESC, id DESC LIMIT -1 OFFSET ?`,
     )
-    .run(environmentId, outcome, MAX_PER_LOCATION);
-  if (removed.changes) logEvent({ kind: "job", label: `archive pruned (${removed.changes})`, response: { environmentId, outcome, keep: MAX_PER_LOCATION } });
+    .all(environmentId, outcome, MAX_PER_LOCATION);
+  if (!doomed.length) return;
+
+  db.query(`DELETE FROM action_clips WHERE id IN (${doomed.map(() => "?").join(",")})`).run(...doomed.map(d => d.id));
+
+  // Reclaim the storage the rows were holding. A clip shared by another row is left alone.
+  for (const { clip_url } of doomed) {
+    const stillReferenced = db.query<{ n: number }, [string]>(`SELECT COUNT(*) AS n FROM action_clips WHERE clip_url = ?`).get(clip_url);
+    if (stillReferenced && stillReferenced.n > 0) continue;
+    void discardClip(clip_url);
+  }
+  logEvent({ kind: "job", label: `archive pruned (${doomed.length})`, response: { environmentId, outcome, keep: MAX_PER_LOCATION } });
+}
+
+/** Removes one clip's bytes from wherever it is kept: R2 in deployment, the cache directory locally. */
+async function discardClip(clipUrl: string) {
+  try {
+    if (r2Enabled() && isGeneratedUrl(clipUrl)) {
+      const key = keyForMediaUrl(clipUrl);
+      if (key) await deleteObject(key);
+      return;
+    }
+    const local = mediaPath(clipUrl);
+    if (local) rmSync(local, { force: true });
+  } catch (err) {
+    logEvent({ kind: "error", label: "pruned clip could not be deleted", status: "error", response: { clipUrl, error: String(err) } });
+  }
 }
 
 export const markClipUsed = (id: number) => db.query(`UPDATE action_clips SET uses = uses + 1 WHERE id = ?`).run(id);

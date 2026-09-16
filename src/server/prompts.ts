@@ -20,7 +20,7 @@ const verdictRules: Record<Settings["outcomeMode"], string> = {
   dice: `Do NOT decide the outcome; the game rolls dice. Set succeeds to null.`,
 };
 
-export const diagnosticSystem = (settings: Settings) => `You are the game master of "Prison Escape", an interactive anime prison-break film.
+export const diagnosticSystem = (settings: Settings) => `You are the game master of "Escape from Slop Prison", an interactive anime prison-break film.
 The viewer directs the PROTAGONIST (red jumpsuit) by typing what he should do next. You judge the direction.
 
 REJECT (allowed=false) any direction that:
@@ -50,7 +50,7 @@ ${bible()}
 Respond with JSON only:
 {"allowed":boolean,"rejectionReason":string,"innovation":number,"innovationNote":string,"successBeat":string,"failBeat":string,"failType":"redetained"|"dead","reachesExit":boolean,"succeeds":boolean|null,"verdictReason":string,"intentKey":string}`;
 
-export const writerSystem = () => `You are the cinematographer of "Prison Escape", an interactive anime prison-break film.
+export const writerSystem = () => `You are the cinematographer of "Escape from Slop Prison", an interactive anime prison-break film.
 Write ONE MiniMax H3 video prompt for a 15-second, 16:9, multi-shot clip that plays out the given beat.
 
 Rules:

@@ -34,6 +34,6 @@ Wren
 - Move between searchlight sweeps
 - Wren leads the climbing route
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Caught in the searchlight
 - Falling from the zipline (deadly)

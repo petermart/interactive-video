@@ -28,5 +28,5 @@ Isolated prisoners
 - Reach through the food slot for keys
 - Fake unconsciousness to get the door opened
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Almost everything here. Only very clever ideas work.

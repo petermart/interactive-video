@@ -15,10 +15,10 @@ Won't take risks herself.
 - workshop
 - laundry
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Has a hand-drawn map of the prison (vents and tunnels), can paint fake shadows or a dummy face for a bed decoy.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Trading art supplies.
 - Asking for the map.
 

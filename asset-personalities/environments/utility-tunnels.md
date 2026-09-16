@@ -33,6 +33,6 @@ None
 - Kill power to a cell block from the fuse panel
 - Use the old blueprints to navigate
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Steam burns
 - Dead-end tunnel with guards behind

@@ -15,10 +15,10 @@ Pride. Challenge his authority or make him look foolish and he overreacts, leavi
 - yard
 - cell-block-tier
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Never willingly. His keys and radio are valuable if he is lured away.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Staged fights draw him in (he always responds himself).
 - Can't chase up stairs or ladders quickly.
 

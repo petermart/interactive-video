@@ -1,4 +1,4 @@
-# Prison Escape: Bun server + ffmpeg. Deploy on Railway (or any Docker host) with a volume mounted at /data.
+# Escape from Slop Prison: Bun server + ffmpeg. Deploy on Railway (or any Docker host) with a volume mounted at /data.
 FROM oven/bun:1.3-debian
 
 # ffmpeg/ffprobe: last-frame extraction, reference downscaling, film export.

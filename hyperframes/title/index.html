@@ -27,13 +27,18 @@
   #reticle::before, #reticle::after { content: ""; position: absolute; background: rgba(255,138,42,.5); }
   #reticle::before { left: 50%; top: -40px; bottom: -40px; width: 2px; }
   #reticle::after { top: 50%; left: -40px; right: -40px; height: 2px; }
-  #title { position: absolute; left: 0; right: 0; top: 36%; text-align: center; font-weight: 700; font-size: 190px; line-height: .95; letter-spacing: .06em; }
+  /* Two stacked lines: the full title will not fit across 1920px at title weight. */
+  #title { position: absolute; left: 0; right: 0; top: 34%; text-align: center; font-weight: 700; line-height: .95; letter-spacing: .06em; }
   #title .word { display: block; }
   #title .ch { display: inline-block; }
-  #escape { color: #ff8a2a; text-shadow: 0 0 40px rgba(255,138,42,.55); }
-  #redact { position: absolute; left: 50%; top: 71%; height: 46px; width: 760px; margin-left: -380px; background: #000;
+  #escape { font-size: 120px; letter-spacing: .2em; }
+  #prison { font-size: 190px; color: #ff8a2a; text-shadow: 0 0 40px rgba(255,138,42,.55); }
+  /* Tall enough to hide both tagline lines until the wipe clears them. */
+  #redact { position: absolute; left: 50%; top: 71%; height: 92px; width: 760px; margin-left: -380px; background: #000;
     transform-origin: left center; }
   #tagline { position: absolute; left: 0; right: 0; top: 71%; line-height: 46px; text-align: center; font: 600 28px "JetBrains Mono", monospace; letter-spacing: .35em; color: rgba(255,255,255,.8); }
+  #tagline .t-line { display: block; }
+  #tagline .call { font-size: 24px; color: #ff8a2a; }
 </style>
 </head>
 <body>
@@ -49,17 +54,20 @@
   <div id="file">CLASSIFIED // INMATE 4471</div>
   <div id="meta">BLOCK A · CELL 12<br />STATUS: <span style="color:#ff2d3d">MAXIMUM SECURITY</span></div>
   <div id="title">
-    <span class="word" id="prison">PRISON</span>
-    <span class="word" id="escape">ESCAPE</span>
+    <span class="word" id="escape">ESCAPE FROM</span>
+    <span class="word" id="prison">SLOP PRISON</span>
   </div>
-  <div id="tagline">YOU DIRECT THE BREAKOUT</div>
+  <div id="tagline">
+    <span class="t-line">YOU DIRECT THE BREAKOUT</span>
+    <span class="t-line call">FREE SLOPPY JOE</span>
+  </div>
   <div id="redact"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/gsap@3/dist/gsap.min.js"></script>
   <script>
     // Split title words into characters for the stagger.
     document.querySelectorAll("#title .word").forEach(w => {
-      w.innerHTML = [...w.textContent].map(c => `<span class="ch">${c}</span>`).join("");
+      w.innerHTML = [...w.textContent].map(c => `<span class="ch">${c === " " ? "&nbsp;" : c}</span>`).join("");
     });
 
     const tl = gsap.timeline({ paused: true });
@@ -67,14 +75,15 @@
       .from("#file", { opacity: 0, x: -30, duration: 0.5 }, 0.2)
       .from("#meta", { opacity: 0, x: 30, duration: 0.5 }, 0.3)
       .from("#reticle", { scale: 0.3, opacity: 0, rotation: -90, duration: 1.1, ease: "expo.out" }, 0.2)
-      .from("#prison .ch", { y: 120, opacity: 0, duration: 0.5, stagger: 0.05, ease: "back.out(2)" }, 0.5)
-      .from("#escape .ch", { y: -120, opacity: 0, duration: 0.5, stagger: 0.05, ease: "back.out(2)" }, 0.8)
+      // The two lines converge: the lead drops in from above, the accent line rises to meet it.
+      .from("#escape .ch", { y: -120, opacity: 0, duration: 0.5, stagger: 0.05, ease: "back.out(2)" }, 0.5)
+      .from("#prison .ch", { y: 120, opacity: 0, duration: 0.5, stagger: 0.05, ease: "back.out(2)" }, 0.8)
       .fromTo("#redact", { scaleX: 1 }, { scaleX: 0, transformOrigin: "right center", duration: 0.6, ease: "power2.inOut" }, 1.5)
       // Looping ambience: police sirens and reticle drift.
       .to("#siren-red", { opacity: 0.55, duration: 0.45, repeat: -1, yoyo: true, ease: "sine.inOut" }, 0.6)
       .to("#siren-blue", { opacity: 0.55, duration: 0.45, repeat: -1, yoyo: true, ease: "sine.inOut", delay: 0.45 }, 0.6)
       .to("#reticle", { rotation: 360, duration: 24, repeat: -1, ease: "none" }, 1.3)
-      .to("#escape", { x: "random(-6, 6)", duration: 0.08, repeat: -1, repeatRefresh: true, repeatDelay: 2.5 }, 2);
+      .to("#prison", { x: "random(-6, 6)", duration: 0.08, repeat: -1, repeatRefresh: true, repeatDelay: 2.5 }, 2);
 
     window.__timelines = window.__timelines || {};
     window.__timelines.title = tl;

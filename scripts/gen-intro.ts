@@ -59,13 +59,13 @@ async function run(body: object, outFile: string) {
 
 /** Looping clips: a Nano Banana keyframe, then H3 I2V with that keyframe as both first and last frame. */
 const CLIPS: Record<string, { refs: string[]; secs: number }> = {
-  // Larry + his cell -> Larry crouched in the cell; 15s multi-shot opening.
+  // Sloppy Joe + his cell -> Sloppy Joe crouched in the cell; 15s multi-shot opening.
   intro: {
-    refs: ["common-generated-assets/characters/larry-protagonist.png", "common-generated-assets/environments/cell-block-a.png"],
+    refs: ["common-generated-assets/characters/sloppy-joe-protagonist.png", "common-generated-assets/environments/cell-block-a.png"],
     secs: 15,
   },
-  // The intro keyframe -> macro of Larry deliberating; 4s idle loop shown while the viewer decides.
-  "larry-thinking": { refs: [`${DIR}/intro-keyframe.png`], secs: 4 },
+  // The intro keyframe -> macro of Sloppy Joe deliberating; 4s idle loop shown while the viewer decides.
+  "sloppy-joe-thinking": { refs: [`${DIR}/intro-keyframe.png`], secs: 4 },
 };
 
 const [name = "", step = ""] = process.argv.slice(2);

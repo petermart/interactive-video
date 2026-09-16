@@ -11,7 +11,7 @@ export function PromptBar({ enabled, status, placeholder, onSubmit }: Props) {
   const [text, setText] = useState("");
   // Phone screens truncate the long prompt, so ask the short version there.
   const narrow = typeof window !== "undefined" && window.innerWidth < 640;
-  const hint = narrow ? "What should Larry do?" : placeholder;
+  const hint = narrow ? "What should Sloppy Joe do?" : placeholder;
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();

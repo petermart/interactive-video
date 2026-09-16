@@ -14,10 +14,10 @@ Loves drama and gossip; can't keep quiet.
 - kitchen
 - cafeteria
 
-## How they can help Larry
-Hides Larry in a food cart or garbage bin, knows the delivery truck times at the loading dock, provides cooking oil, pepper, bacon (for the K-9).
+## How they can help Sloppy Joe
+Hides Sloppy Joe in a food cart or garbage bin, knows the delivery truck times at the loading dock, provides cooking oil, pepper, bacon (for the K-9).
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Flattering his cooking.
 - Asking about delivery times.
 

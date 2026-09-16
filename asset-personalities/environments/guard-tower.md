@@ -37,6 +37,6 @@ None
 - Broadcast a fake alarm from another wing on the radio console
 - Use the catwalk to drop past the razor wire
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Climbing the ladder while Hawk is watching (usually fatal)
 - Fighting Hawk head-on in the cabin

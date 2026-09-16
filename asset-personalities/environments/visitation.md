@@ -33,6 +33,6 @@ Aces Marlowe (runs cons here)
 - Aces cons Pratt into opening the side door
 - Watch someone type the keypad code
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Trying the keypad without the code
 - Pat-down finds contraband

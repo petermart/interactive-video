@@ -1,9 +1,9 @@
-// Larry talking-head intro via Masky (https://masky.ai/skill.md). Spends Masky credits; run one step at a time.
-//   bun scripts/masky-intro.ts portrait  -> images/edit: Larry face portrait from his GMI-hosted character sheet (~0.01 cr)
-//   bun scripts/masky-intro.ts avatars   -> create "Larry" (talking) and "Blackstone Prison" (B-roll source) avatars
+// Sloppy Joe talking-head intro via Masky (https://masky.ai/skill.md). Spends Masky credits; run one step at a time.
+//   bun scripts/masky-intro.ts portrait  -> images/edit: Sloppy Joe face portrait from his GMI-hosted character sheet (~0.01 cr)
+//   bun scripts/masky-intro.ts avatars   -> create "Sloppy Joe" (talking) and "Blackstone Prison" (B-roll source) avatars
 //   bun scripts/masky-intro.ts speak     -> lip-synced talking-head clip of the intro script
 //   bun scripts/masky-intro.ts broll     -> video-2 prison B-roll starting from the guard tower plate
-//   bun scripts/masky-intro.ts composite -> ffmpeg: B-roll full frame + Larry picture-in-picture, Larry's audio (free)
+//   bun scripts/masky-intro.ts composite -> ffmpeg: B-roll full frame + Sloppy Joe picture-in-picture, Sloppy Joe's audio (free)
 // Prompts, IDs and outputs live in common-generated-assets/videos/masky/ (state.json tracks progress).
 import keys from "../keys.json";
 import { existsSync, mkdirSync } from "node:fs";
@@ -15,10 +15,10 @@ const headers = { Authorization: `Bearer ${(keys as { masky: string }).masky}`, 
 mkdirSync(DIR, { recursive: true });
 
 type State = {
-  larrySheetUrl?: string;
+  sloppyJoeSheetUrl?: string;
   guardTowerUrl?: string;
   portraitUrl?: string;
-  larryAvatarId?: string;
+  sloppyJoeAvatarId?: string;
   prisonAvatarId?: string;
   speakGenerationId?: string;
   talkingVideoUrl?: string;
@@ -54,31 +54,31 @@ async function gmiImageUrls() {
   ).json();
   const items: any[] = list.requests ?? list.data ?? list.items ?? list;
   const find = (needle: string) => items.find(q => q.payload?.prompt?.includes(needle))?.outcome?.media_urls?.[0]?.url;
-  return { larry: find("CHARACTER: Larry"), tower: find("ENVIRONMENT: The guard tower") };
+  return { sloppyJoe: find("CHARACTER: Sloppy Joe"), tower: find("ENVIRONMENT: The guard tower") };
 }
 
 const step = process.argv[2];
 
 if (step === "portrait") {
   const urls = await gmiImageUrls();
-  if (!urls.larry || !urls.tower) throw new Error("Could not find GMI-hosted Larry sheet or guard tower plate");
-  state.larrySheetUrl = urls.larry;
+  if (!urls.sloppyJoe || !urls.tower) throw new Error("Could not find GMI-hosted Sloppy Joe sheet or guard tower plate");
+  state.sloppyJoeSheetUrl = urls.sloppyJoe;
   state.guardTowerUrl = urls.tower;
-  const r = await call("POST", "/images/edit", { prompt: await prompt("portrait"), imageUrl: urls.larry });
+  const r = await call("POST", "/images/edit", { prompt: await prompt("portrait"), imageUrl: urls.sloppyJoe });
   state.portraitUrl = r.imageUrl;
   state.credits = { ...state.credits, portrait: r.creditCost };
   await save();
-  await download(r.imageUrl, `${DIR}/larry-portrait.${r.imageUrl.split("?")[0].split(".").pop() ?? "jpg"}`);
+  await download(r.imageUrl, `${DIR}/sloppy-joe-portrait.${r.imageUrl.split("?")[0].split(".").pop() ?? "jpg"}`);
   console.log(r);
 } else if (step === "avatars") {
   if (!state.portraitUrl || !state.guardTowerUrl) throw new Error("Run the portrait step first");
-  const larry = await call("POST", "/avatars", {
-    displayName: "Larry (Inmate 4471)",
+  const sloppyJoe = await call("POST", "/avatars", {
+    displayName: "Sloppy Joe (Inmate 4471)",
     imageUrl: state.portraitUrl,
     personalityPrompt: await prompt("personality"),
     humeVoiceId: "82a76fb8-3524-4e87-9265-9795c8e4ede6", // "Male Protagonist"
   });
-  state.larryAvatarId = larry.avatar?.avatarId ?? larry.avatarId; // response nests the avatar
+  state.sloppyJoeAvatarId = sloppyJoe.avatar?.avatarId ?? sloppyJoe.avatarId; // response nests the avatar
   const prison = await call("POST", "/avatars", {
     displayName: "Blackstone Prison (B-roll)",
     imageUrl: state.guardTowerUrl,
@@ -86,10 +86,10 @@ if (step === "portrait") {
   });
   state.prisonAvatarId = prison.avatar?.avatarId ?? prison.avatarId;
   await save();
-  console.log({ larry, prison });
+  console.log({ sloppyJoe, prison });
 } else if (step === "speak") {
-  if (!state.larryAvatarId) throw new Error("Run the avatars step first");
-  const r = await call("POST", `/avatars/${state.larryAvatarId}/speak`, { text: await prompt("script"), textMode: "literal", output: "video" });
+  if (!state.sloppyJoeAvatarId) throw new Error("Run the avatars step first");
+  const r = await call("POST", `/avatars/${state.sloppyJoeAvatarId}/speak`, { text: await prompt("script"), textMode: "literal", output: "video" });
   state.speakGenerationId = r.generationId ?? r.id;
   await save();
   console.log("started", r);
@@ -103,7 +103,7 @@ if (step === "portrait") {
       state.talkingVideoUrl = g.videoUrl;
       state.credits = { ...state.credits, speak: g.creditsCharged ?? g.creditCost };
       await save();
-      await download(g.videoUrl, `${DIR}/larry-talking.mp4`);
+      await download(g.videoUrl, `${DIR}/sloppy-joe-talking.mp4`);
       break;
     }
   }
@@ -135,11 +135,11 @@ if (step === "portrait") {
     }
   }
 } else if (step === "composite") {
-  const talking = `${DIR}/larry-talking.mp4`;
+  const talking = `${DIR}/sloppy-joe-talking.mp4`;
   const broll = `${DIR}/prison-broll.mp4`;
-  if (!existsSync(talking) || !existsSync(broll)) throw new Error("Need larry-talking.mp4 and prison-broll.mp4");
-  // B-roll scaled to 1280x720 and looped to cover the talk; Larry as a square face-crop inset, bottom-left,
-  // with a thin orange border. Output length follows Larry's speech; audio is Larry's voice only.
+  if (!existsSync(talking) || !existsSync(broll)) throw new Error("Need sloppy-joe-talking.mp4 and prison-broll.mp4");
+  // B-roll scaled to 1280x720 and looped to cover the talk; Sloppy Joe as a square face-crop inset, bottom-left,
+  // with a thin orange border. Output length follows Sloppy Joe's speech; audio is Sloppy Joe's voice only.
   const filter = [
     "[1:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,setsar=1[bg]",
     "[0:v]crop=ih:ih,scale=280:280,setsar=1,pad=iw+8:ih+8:4:4:color=0xff8a2a[pip]", // square face crop
@@ -152,10 +152,10 @@ if (step === "portrait") {
     "-filter_complex", filter,
     "-map", "[v]", "-map", "0:a?",
     "-c:v", "libx264", "-crf", "20", "-preset", "medium", "-c:a", "aac", "-b:a", "160k",
-    "-shortest", `${DIR}/larry-intro-composite.mp4`,
+    "-shortest", `${DIR}/sloppy-joe-intro-composite.mp4`,
   ]);
   if (p.exitCode !== 0) throw new Error(`ffmpeg: ${p.stderr}`);
-  console.log(`saved ${DIR}/larry-intro-composite.mp4`);
+  console.log(`saved ${DIR}/sloppy-joe-intro-composite.mp4`);
 } else {
   console.error("Usage: bun scripts/masky-intro.ts portrait|avatars|speak|broll|composite");
   process.exit(1);

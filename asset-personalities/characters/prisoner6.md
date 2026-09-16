@@ -15,10 +15,10 @@ Cowardly. Snitches instantly if threatened by a guard.
 - showers
 - kitchen
 
-## How they can help Larry
-Sells tools (screwdriver, wire cutters, lighter), a guard uniform piece, or a spare orange jumpsuit to hide Larry's red one.
+## How they can help Sloppy Joe
+Sells tools (screwdriver, wire cutters, lighter), a guard uniform piece, or a spare orange jumpsuit to hide Sloppy Joe's red one.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Buying a spare ORANGE jumpsuit (blend in).
 - Buying tools.
 

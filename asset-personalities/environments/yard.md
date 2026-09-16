@@ -34,6 +34,6 @@ King Vargas, Knuckles, Sarge Whitaker, Big Oso, Aces
 - Mirror or shiny weight plate to blind Hawk
 - Ride inside the basketball crowd to the gate
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Sprinting across open ground in the searchlight (often fatal)
 - Climbing the razor wire unprotected

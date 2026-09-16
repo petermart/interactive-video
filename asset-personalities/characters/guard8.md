@@ -15,10 +15,10 @@ Charges straight in and is easily baited. Heavy armor makes him slow in tight sp
 - cafeteria
 - solitary
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Never.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Luring him into a riot elsewhere clears his area.
 - Escaping into tight spaces he can't follow.
 - Slippery floors (kitchen oil, shower water).

@@ -1,7 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./client/App";
+import { reportLeavingOnUnload } from "./client/viewer";
 import "./index.css";
+
+// Registered once for the page, not per render: closing the tab frees any disk-only film this viewer made.
+// Anything the beacon misses is caught by the one-hour cache window on the server.
+reportLeavingOnUnload();
 
 const elem = document.getElementById("root")!;
 const app = (

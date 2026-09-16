@@ -15,10 +15,10 @@ Terrified of guards and breaks under pressure.
 - workshop
 - cafeteria
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Loops cameras from the library terminal, trips fuses, rewires a keypad (needs parts from the workshop).
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Trading electronics parts.
 - Challenging his ego ('bet you can't').
 

@@ -15,10 +15,10 @@ Believes confident lies, panics under pressure, forgets to lock doors behind him
 - hall-main
 - library
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Can be tricked into opening a door, fetching someone, or leaving a checkpoint.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Fake orders ('the Sergeant said to bring me to the infirmary').
 - Faking a medical emergency.
 - He drops his clipboard with the day's schedule.

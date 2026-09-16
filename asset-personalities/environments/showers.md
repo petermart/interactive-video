@@ -33,6 +33,6 @@ King Vargas's crew, Knuckles, Rizzo
 - Soap on the floor to trip pursuers
 - Steam to hide movement
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Crossing King Vargas's crew without permission
 - Getting stuck in the drain

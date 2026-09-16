@@ -2,6 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { CACHE_DIR, keys, MEDIA_DIR, ROOT } from "./config";
 import { logEvent, traced } from "./db";
 import { isRetryableStatus, RetryableHttpError, withRetry } from "./net";
+import { putBytes, r2Enabled } from "./storage";
 
 const API = "https://api.machgen.ai/api/v0";
 const auth = { Authorization: `Bearer ${keys.machgen}` };
@@ -68,7 +69,9 @@ No music.`;
         if (!res.ok) throw isRetryableStatus(res.status) ? new RetryableHttpError(`download ${res.status}`) : new Error(`download ${res.status}`);
         return res.arrayBuffer();
       });
-      await Bun.write(file, bytes);
+      // Straight to R2 when configured, so the container keeps no copy. If R2 is off or at its cap,
+      // the clip stays on disk and is served from there rather than being thrown away.
+      if (!(await putBytes(`cache/${taskId}.mp4`, bytes))) await Bun.write(file, bytes);
       return {
         taskId,
         file,

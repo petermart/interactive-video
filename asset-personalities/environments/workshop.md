@@ -34,6 +34,6 @@ Pixel, Maya Lin, Sarge Whitaker
 - Wire cutters for the fence
 - Hide on a pallet moved by forklift to the dock
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Missing tool discovered at count
 - Blowtorch noise and light

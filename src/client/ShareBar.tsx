@@ -8,10 +8,13 @@ const GUTTER = 12;
 type Info = {
   title: string;
   text: string;
-  pageUrl: string;
+  pageUrl: string | null;
   videoUrl: string;
   verticalUrl: string | null;
   isPublic: boolean;
+  /** False when the film only exists on the server's disk: downloadable, but no link can be handed out. */
+  shareable: boolean;
+  shareBlockedReason: string | null;
 };
 
 /** Brand marks, drawn simply enough to stay readable at 20px. */
@@ -142,7 +145,7 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
         if (phone) {
           // iOS cancels a share that waits on a download, so hold the file before the tap.
           const blob = await fetch(body.verticalUrl ?? body.videoUrl).then(r => r.blob());
-          if (!cancelled) setFile(new File([blob], `prison-escape-${outcome}.mp4`, { type: "video/mp4" }));
+          if (!cancelled) setFile(new File([blob], `escape-from-slop-prison-${outcome}.mp4`, { type: "video/mp4" }));
         }
         setStatus("ready");
       } catch (err) {
@@ -190,18 +193,21 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
     if (!url) return;
     const a = document.createElement("a");
     a.href = url;
-    a.download = `prison-escape-larry-${outcome}${suffix}.mp4`;
+    a.download = `escape-from-slop-prison-${outcome}${suffix}.mp4`;
     document.body.appendChild(a);
     a.click();
     a.remove();
+    // A temporary film has done its job once the viewer has a copy; let the server reclaim it shortly after.
+    if (info && !info.shareable) void apiFetch("/api/downloaded", { method: "POST", body: JSON.stringify({ url }) }).catch(() => {});
   };
 
   const primary = async () => {
     if (!info) return;
     if (!phone) return setOpen(o => !o);
     try {
+      // Sharing the file itself is fine even for a temporary cut: the recipient gets bytes, not a link.
       if (file && navigator.canShare?.({ files: [file] })) return await navigator.share({ files: [file], title: info.title, text: info.text });
-      if (navigator.share) return await navigator.share({ title: info.title, text: info.text, url: info.pageUrl });
+      if (navigator.share && info.pageUrl) return await navigator.share({ title: info.title, text: info.text, url: info.pageUrl });
       setOpen(o => !o);
     } catch (err) {
       if ((err as Error)?.name !== "AbortError") setNote((err as Error).message);
@@ -263,11 +269,25 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
               </button>
             </div>
 
+            {/* Temporary cut: say so once, plainly, instead of offering links that would break. */}
+            {!info.shareable && (
+              <div className="mb-2 rounded border border-sodium/40 bg-sodium/10 p-2 text-[11px] leading-relaxed text-sodium">
+                {info.shareBlockedReason ?? "This cut is temporary and can't be linked."}
+              </div>
+            )}
+
             {/* One horizontal strip: link composers first, then the platforms that need a manual upload. */}
             <div ref={stripRef} className="-mx-1 flex snap-x gap-1 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {LINK_TARGETS.map(t => (
-                <Icon key={t.id} target={t} onClick={run(() => void window.open(t.href(info), "_blank", "noopener,noreferrer,width=600,height=640"))} />
-              ))}
+              {/* Composers post a URL, so they are useless for a film that will not be there later. */}
+              {info.shareable &&
+                LINK_TARGETS.map(t => (
+                  <Icon
+                    key={t.id}
+                    target={t}
+                    onClick={run(() => void window.open(t.href(info as Info & { pageUrl: string }), "_blank", "noopener,noreferrer,width=600,height=640"))}
+                  />
+                ))}
+              {/* Uploads send the actual file, so they keep working: the viewer's copy outlives ours. */}
               {UPLOAD_TARGETS.map(t => (
                 <Icon
                   key={t.id}
@@ -282,15 +302,17 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
             </div>
 
             <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-white/10 pt-2">
-              <button
-                className={chip}
-                onClick={run(async () => {
-                  await navigator.clipboard.writeText(info.pageUrl);
-                  setNote("Link copied");
-                })}
-              >
-                Copy link
-              </button>
+              {info.shareable && info.pageUrl && (
+                <button
+                  className={chip}
+                  onClick={run(async () => {
+                    await navigator.clipboard.writeText(info.pageUrl!);
+                    setNote("Link copied");
+                  })}
+                >
+                  Copy link
+                </button>
+              )}
               <button className={chip} onClick={run(() => save(info.videoUrl, ""))}>
                 Download 16:9
               </button>

@@ -15,10 +15,10 @@ Dozes off, patrols on a lazy predictable loop, avoids the sewer and utility tunn
 - utility-tunnels (rarely)
 - rooftop
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Can be convinced to look the other way if it means less paperwork.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Predictable patrol timing.
 - Fear of rats keeps him out of the tunnels.
 - Talking him out of reporting small things.

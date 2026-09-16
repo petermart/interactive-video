@@ -15,10 +15,10 @@ Kaiser can be distracted by food (bacon from the kitchen) or thrown off by stron
 - perimeter-fence
 - loading-dock
 
-## How they can help Larry
+## How they can help Sloppy Joe
 No, but Reyes would never let Kaiser get hurt, which can change her choices.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Masking scent with detergent, sewer water or pepper.
 - Food distraction for the dog.
 

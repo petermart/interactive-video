@@ -1,7 +1,7 @@
-import { existsSync } from "node:fs";
-import { EXPORT_DIR, publicBaseUrl } from "./config";
+import { publicBaseUrl } from "./config";
 import { logEvent } from "./db";
-import { exportFilm, exportVertical } from "./export";
+import { ensureThumbnail, exportFilm, exportVertical } from "./export";
+import { isEphemeral } from "./ephemeral";
 import { getNode, type StoryNode } from "./pipeline";
 
 /** Tags asked for by the hackathon submission, used as default share text. */
@@ -9,20 +9,10 @@ const TAGS = "@multimodalsoc @MachgenAI @gmi_cloud @ElevenLabs";
 
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-/** Poster frame for the share card, pulled from near the end of the film. */
-async function ensureThumbnail(nodeId: string) {
-  const mp4 = `${EXPORT_DIR}/${nodeId}.mp4`;
-  const jpg = `${EXPORT_DIR}/${nodeId}.jpg`;
-  if (existsSync(jpg)) return jpg;
-  const proc = Bun.spawn(["ffmpeg", "-v", "error", "-y", "-sseof", "-2", "-i", mp4, "-frames:v", "1", "-update", "1", "-vf", "scale=1280:-2", jpg]);
-  if ((await proc.exited) !== 0) throw new Error("ffmpeg failed making the share thumbnail");
-  return jpg;
-}
-
 function headline(node: StoryNode) {
-  if (node.outcome === "escaped") return `Larry escaped in ${node.depth} move${node.depth === 1 ? "" : "s"}`;
-  if (node.outcome === "fail") return node.failType === "dead" ? "Larry didn't make it out alive" : "Larry got caught";
-  return "Larry is planning his escape";
+  if (node.outcome === "escaped") return `Sloppy Joe escaped in ${node.depth} move${node.depth === 1 ? "" : "s"}`;
+  if (node.outcome === "fail") return node.failType === "dead" ? "Sloppy Joe didn't make it out alive" : "Sloppy Joe got caught";
+  return "Sloppy Joe is planning his escape";
 }
 
 /** Everything the share page and the share buttons need for one ending. */
@@ -30,7 +20,14 @@ export async function shareInfo(nodeId: string, requestOrigin: string, opts: { v
   const node = getNode(nodeId);
   if (!node) throw new Error("Unknown node");
   const film = await exportFilm(nodeId);
-  await ensureThumbnail(node.id);
+
+  /**
+   * A film that only exists on the container's disk cannot be shared: it is deleted when the viewer leaves,
+   * so any link handed out now is a guaranteed 404 later. Downloading it still works — that copy is theirs
+   * and outlives ours — so the film is still useful, just not linkable.
+   */
+  const temporary = isEphemeral(film.url);
+  if (!temporary) await ensureThumbnail(node.id);
   // Instagram/TikTok want 9:16; built on request so landscape-only shares don't pay for it.
   const vertical = opts.vertical ? await exportVertical(nodeId) : null;
 
@@ -38,27 +35,35 @@ export async function shareInfo(nodeId: string, requestOrigin: string, opts: { v
   const base = publicBaseUrl() ?? requestOrigin;
   const title = headline(node);
   const description = node.direction
-    ? `"${node.direction}" — an interactive AI film where you direct the prison break.`
-    : "An interactive AI film where you direct the prison break.";
+    ? `"${node.direction}" — an interactive AI film where you direct the escape.`
+    : "An interactive AI film where you direct the escape.";
 
   return {
     nodeId: node.id,
     outcome: node.outcome,
     title,
     description,
-    text: `${title}. ${node.direction ? `My move: "${node.direction}". ` : ""}Direct your own AI prison break ${TAGS}`,
-    pageUrl: `${base}/s/${node.id}`,
+    text: `${title}. ${node.direction ? `My move: "${node.direction}". ` : ""}Direct your own AI escape ${TAGS}`,
+    // No share page for a temporary film: the link would outlive the file behind it.
+    pageUrl: temporary ? null : `${base}/s/${node.id}`,
     videoUrl: `${base}${film.url}`,
     verticalUrl: vertical ? `${base}${vertical.url}` : null,
-    thumbUrl: `${base}/media/exports/${node.id}.jpg`,
+    thumbUrl: temporary ? null : `${base}/media/exports/${node.id}.jpg`,
     playUrl: base,
     isPublic: Boolean(publicBaseUrl()),
+    /** False while storage is full: the player can still watch and download, but not post a link. */
+    shareable: !temporary,
+    shareBlockedReason: temporary
+      ? "Storage is full, so this cut is temporary — you can download it, but it can't be linked."
+      : null,
   };
 }
 
 /** Share page: the card platforms scrape, plus a player and a link back into the game. */
 export async function sharePage(nodeId: string, requestOrigin: string) {
   const info = await shareInfo(nodeId, requestOrigin);
+  // Refuse rather than serve a page whose video is about to be deleted under it.
+  if (!info.shareable) throw new Error("This cut is temporary and has no share page");
   logEvent({ kind: "job", label: "share page viewed", response: { nodeId, outcome: info.outcome } });
   const t = escapeHtml(info.title);
   const d = escapeHtml(info.description);
@@ -67,7 +72,7 @@ export async function sharePage(nodeId: string, requestOrigin: string) {
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>${t} · Prison Escape</title>
+<title>${t} · Escape from Slop Prison</title>
 <meta property="og:type" content="video.other" />
 <meta property="og:title" content="${t}" />
 <meta property="og:description" content="${d}" />

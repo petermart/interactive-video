@@ -5,6 +5,18 @@ type Report = {
   machgen: { balanceUsd: number | null; minBalanceUsd: number; generationPaused: boolean; pendingTasks: number; runningTasks: number; error?: string };
   gmi: { estimatedUsd: number; baselineUsd: number; baselineAt: string; spentSinceBaselineUsd: number; costedCalls: number };
   library: { clips: number; reuses: number; saved_usd: number | null } | null;
+  storage: {
+    enabled: boolean;
+    gb: number;
+    objects: number;
+    freeTierGb: number;
+    capGb: number;
+    percentOfCap: number;
+    projectedMonthlyUsd: number;
+    grossMonthlyUsd: number;
+    overCap: boolean;
+    byKind: { kind: string; gb: number; objects: number; monthlyUsd: number }[];
+  };
 };
 
 const PW_KEY = "prison-escape:admin-password";
@@ -73,7 +85,9 @@ export function AdminCredits() {
     );
   }
 
-  const { machgen, gmi } = report;
+  const { machgen, gmi, storage } = report;
+  // Fills toward the cap, then turns red once uploads are being refused.
+  const barColor = storage.overCap ? "bg-siren-red" : storage.percentOfCap > 75 ? "bg-sodium" : "bg-teal";
   return (
     <div className="mb-4 space-y-2 border-b border-white/10 pb-3">
       <div className="flex items-center justify-between text-white/70">
@@ -96,6 +110,42 @@ export function AdminCredits() {
           {machgen.runningTasks + machgen.pendingTasks > 0 && ` · ${machgen.runningTasks + machgen.pendingTasks} tasks in flight`}
           {machgen.error && ` · ${machgen.error}`}
         </div>
+      </div>
+      {/* Projected Cloudflare usage. Shown whatever the level, so the number is familiar before it matters. */}
+      <div className={`rounded border p-2 ${storage.overCap ? "border-siren-red/60 bg-siren-red/10" : "border-white/10"}`}>
+        <div className="flex justify-between">
+          <span>Cloudflare R2 (storage)</span>
+          <b className={storage.overCap ? "text-siren-red" : "text-teal"}>
+            {storage.gb.toFixed(2)} / {storage.capGb} GB
+          </b>
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded bg-white/10">
+          <div className={`h-full ${barColor}`} style={{ width: `${Math.min(100, storage.percentOfCap)}%` }} />
+        </div>
+        <div className="mt-1 text-xs text-white/40">
+          {storage.objects} objects · projected{" "}
+          <b className={storage.projectedMonthlyUsd > 0 ? "text-sodium" : "text-[#3dff7a]"}>
+            ${storage.projectedMonthlyUsd.toFixed(2)}/mo
+          </b>{" "}
+          {storage.projectedMonthlyUsd === 0
+            ? `(inside the ${storage.freeTierGb} GB free tier; would be $${storage.grossMonthlyUsd.toFixed(2)} without it)`
+            : `(${storage.freeTierGb} GB free tier exceeded)`}
+          {!storage.enabled && " · R2 not configured, serving from disk"}
+        </div>
+        {storage.byKind.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-white/30">
+            {storage.byKind.map(k => (
+              <span key={k.kind}>
+                {k.kind} {k.gb.toFixed(2)} GB ({k.objects})
+              </span>
+            ))}
+          </div>
+        )}
+        {storage.overCap && (
+          <div className="mt-1 text-xs font-semibold text-siren-red">
+            Cap reached — new uploads to Cloudflare are blocked. New clips stay on the container disk until space is freed.
+          </div>
+        )}
       </div>
       {report.library && (
         <div className="rounded border border-white/10 p-2">

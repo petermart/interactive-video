@@ -17,10 +17,21 @@ const MODE_HELP: Record<OutcomeMode, string> = {
 export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<SettingsView | null>(null);
+  /** Cap warning, from the public status endpoint: visible without unlocking, unlike the GB and the cost. */
+  const [storageFull, setStorageFull] = useState(false);
 
   useEffect(() => {
     api.settings().then(setSettings);
   }, []);
+
+  // Re-checked each time the panel opens, so the warning reflects the cap now rather than at page load.
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/status")
+      .then(r => r.json())
+      .then(s => setStorageFull(Boolean(s.storageFull)))
+      .catch(() => {});
+  }, [open]);
 
   const usesNumbers = settings?.outcomeMode !== "vibes";
 
@@ -45,6 +56,12 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
       {open && settings && (
         <div className="w-80 rounded-lg border border-white/10 bg-black/80 p-4 font-mono text-sm backdrop-blur-md">
           <h2 className="mb-3 font-display text-xs font-semibold tracking-[0.3em] text-teal">ADMIN // CONTROL ROOM</h2>
+          {storageFull && (
+            <div className="mb-3 rounded border border-siren-red/60 bg-siren-red/10 p-2 text-xs text-siren-red">
+              <b>Cloudflare storage cap reached.</b> New clips and exports are no longer being uploaded; they stay on the
+              container disk instead. Unlock below for usage, and free space before the volume fills.
+            </div>
+          )}
           <AdminCredits />
 
           <div className="text-white/70">Success decided by</div>
@@ -147,7 +164,7 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
               onChange={v => save({ showClipSource: v })}
             />
             <Toggle
-              label="Constant think (reuse Larry macro loop)"
+              label="Constant think (reuse Sloppy Joe macro loop)"
               checked={settings.constantThink}
               onChange={v => save({ constantThink: v })}
             />

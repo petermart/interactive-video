@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { CACHE_DIR, FRAMES_DIR, keys, publicBaseUrl } from "./config";
 import { logEvent, traced } from "./db";
 import { isRetryableStatus, RetryableHttpError, withRetry } from "./net";
+import { putBytes, r2Enabled } from "./storage";
 
 const API = "https://masky.ai/api";
 const auth = { Authorization: `Bearer ${keys.masky}`, "Content-Type": "application/json" };
@@ -25,9 +26,9 @@ export async function publishFrame(file: string) {
 
   const base = publicBaseUrl();
   if (base) {
-    // This server is already public: write the frame into its own frames directory.
+    // This server is already public: publish the frame under its own frames path and hand Masky that URL.
     const id = `${crypto.randomUUID()}.${contentType === "image/jpeg" ? "jpg" : "png"}`;
-    await Bun.write(`${FRAMES_DIR}/${id}`, bytes);
+    if (!(await putBytes(`frames/${id}`, bytes))) await Bun.write(`${FRAMES_DIR}/${id}`, bytes);
     return `${base}/media/frames/${id}`;
   }
 
@@ -105,7 +106,9 @@ export async function generateMaskyVideo({ prompt, firstFrameFile, lastFrameFile
         if (!res.ok) throw isRetryableStatus(res.status) ? new RetryableHttpError(`download ${res.status}`) : new Error(`download ${res.status}`);
         return res.arrayBuffer();
       });
-      await Bun.write(file, bytes);
+      // Straight to R2 when configured, so the container keeps no copy. If R2 is off or at its cap,
+      // the clip stays on disk and is served from there rather than being thrown away.
+      if (!(await putBytes(`cache/masky-${id}.mp4`, bytes))) await Bun.write(file, bytes);
       logEvent({ kind: "video", label: "masky clip ready", response: { id, slug: gen.slug, seconds: gen.seconds, creditCost: gen.creditCost } });
       return { taskId: id, file, url: `/media/cache/masky-${id}.mp4`, seconds: gen.seconds, creditCost: gen.creditCost };
     },

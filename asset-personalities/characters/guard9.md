@@ -15,10 +15,10 @@ His corruption. Evidence of the smuggling (ledger in the warden's office safe) i
 - visitation
 - loading-dock
 
-## How they can help Larry
-Only under blackmail, and he will try to betray Larry later.
+## How they can help Sloppy Joe
+Only under blackmail, and he will try to betray Sloppy Joe later.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Blackmail with the ledger.
 - Hiding in one of his smuggling crates (they skip inspection).
 

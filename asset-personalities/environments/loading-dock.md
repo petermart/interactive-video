@@ -35,6 +35,6 @@ Chef Beaux's kitchen crew unloading
 - Mask scent from Kaiser
 - Swap into a delivery driver's jacket
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - K-9 sniff finds him
 - Hiding under the truck (mirror check)

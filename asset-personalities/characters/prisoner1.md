@@ -15,10 +15,10 @@ Won't hurt anyone and won't escape himself.
 - yard
 - cell-block-tier
 
-## How they can help Larry
-Boosts Larry up to high places, blocks a doorway, calms a fight, tells prison history (old tunnels).
+## How they can help Sloppy Joe
+Boosts Sloppy Joe up to high places, blocks a doorway, calms a fight, tells prison history (old tunnels).
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Earning his trust with honesty.
 - Asking about the old sewer tunnels built 50 years ago.
 

@@ -33,6 +33,6 @@ Inmates in transit
 - Pull the fire alarm for chaos
 - Wax the floor to slow pursuers
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Walking alone in the red jumpsuit
 - Lingering at a checkpoint

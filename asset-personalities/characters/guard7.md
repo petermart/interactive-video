@@ -13,15 +13,15 @@ Distracted by his game, jumps at loud noises, leaves the room for bathroom break
 ## Usually found in
 - guard-station
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Unknowingly: the door-release console he controls opens any gate.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Bathroom-break window to reach the console.
 - Power flicker or fuse trip makes him reboot the cameras (a 30-second blind spot).
 
 ## Danger
-If he spots Larry on a monitor, lockdown is instant.
+If he spots Sloppy Joe on a monitor, lockdown is instant.
 
 ## Voice
 Fast, jittery, talks to himself.

@@ -84,7 +84,7 @@ export type Settings = {
   showClipSource: boolean;
   /** Lite model that decides whether a new action matches an archived one. */
   matchModel: string;
-  /** Skip generating a per-step idle loop; always idle on the pre-made "Larry thinking" ultra macro loop. */
+  /** Skip generating a per-step idle loop; always idle on the pre-made "Sloppy Joe thinking" ultra macro loop. */
   constantThink: boolean;
   /** LLM 1 ("Analyzing escape plan"): speed matters most. */
   analysisModel: LlmModelId;
@@ -150,8 +150,8 @@ export function introMedia() {
     intro,
     // The intro is generated as a seamless loop, so it doubles as its own idle loop.
     introLoop: existsSync(`${MEDIA_DIR}/intro/intro-loop.mp4`) ? "/media/intro/intro-loop.mp4" : intro,
-    // Silent macro loop of Larry deliberating; the idle background whenever a step has no loop of its own.
-    thinkingLoop: existsSync(`${MEDIA_DIR}/intro/larry-thinking.mp4`) ? "/media/intro/larry-thinking.mp4" : intro,
+    // Silent macro loop of Sloppy Joe deliberating; the idle background whenever a step has no loop of its own.
+    thinkingLoop: existsSync(`${MEDIA_DIR}/intro/sloppy-joe-thinking.mp4`) ? "/media/intro/sloppy-joe-thinking.mp4" : intro,
     music: existsSync(`${MEDIA_DIR}/music/loop.mp3`) ? "/media/music/loop.mp3" : null,
   };
 }

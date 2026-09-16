@@ -34,6 +34,6 @@ Sick inmates behind curtains
 - Sedate a guard's coffee
 - Hide in a body bag for transport (risky, dark)
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Nurse presses the call button
 - Sedatives go missing and get counted

@@ -1,4 +1,4 @@
-# Testing Prison Escape yourself
+# Testing Escape from Slop Prison yourself
 
 ## 1. Requirements
 
@@ -44,10 +44,10 @@ Open **http://localhost:3000** and click **BEGIN**. Browsers only allow sound af
 |---|---|
 | **Success decided by** | `vibes` (the LLM judges creativity), `hybrid` (the LLM decides, guided by the numbers), or `dice` (server roll) |
 | **General success probability** / **Creativity points (±)** | Used by `hybrid` and `dice` only |
-| **Prompts till success** | Roughly how many successful steps until Larry can escape |
+| **Prompts till success** | Roughly how many successful steps until Sloppy Joe can escape |
 | **Live LLM (GMI)** | On by default. Off = mock responses (free), which also disables intent-key and Gemma matching in the action archive, leaving only near-identical wording as a cache hit |
 | **No video generation (text only)** | On = shows the planned scene as text for 15s instead of a clip (free). Off = real MachGen clips (**spends credits**) |
-| **Constant think** | On (default) = while waiting for the next action, always show the pre-made ultra macro "Larry thinking" loop; no per-step idle loop is generated. Off = generate a fresh 4s idle loop after each successful clip (~$0.14, ~9s) |
+| **Constant think** | On (default) = while waiting for the next action, always show the pre-made ultra macro "Sloppy Joe thinking" loop; no per-step idle loop is generated. Off = generate a fresh 4s idle loop after each successful clip (~$0.14, ~9s) |
 | **Analysis model** | LLM 1, "Analyzing escape plan": Gemini 3.1 Flash-Lite (~2s), Gemini 3.5 Flash-Lite (~2s, default), Gemini 3.8 Flash (~6s, deep reasoning) |
 | **Shot writer model** | LLM 2, writes the H3 video prompt. Same options; Gemini 3.8 Flash gives richer shot lists |
 
@@ -81,7 +81,7 @@ If you leave or reload the page while a step is generating, the start button sho
 |---|---|---|
 | `bun scripts/gen-image-machgen.ts <prompt.txt>...` | Nano Banana Pro PNG next to each prompt (skips existing PNGs) | ~$0.079/image |
 | `bun scripts/gen-intro.ts intro keyframe\|video` | Looping 15s intro → `media/intro/intro.mp4` | ~$0.08 + ~$0.53 |
-| `bun scripts/gen-intro.ts larry-thinking keyframe\|video` | Silent 4s "Larry thinking" idle loop | ~$0.08 + ~$0.14 |
+| `bun scripts/gen-intro.ts sloppy-joe-thinking keyframe\|video` | Silent 4s "Sloppy Joe thinking" idle loop | ~$0.08 + ~$0.14 |
 | `bun scripts/gen-music.ts` | 30s seamless music loop → `media/music/loop.mp3` | ~$0.20 |
 
 ## 8. Downloads, credits and admin

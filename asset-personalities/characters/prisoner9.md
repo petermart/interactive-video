@@ -15,10 +15,10 @@ His grudge against Crane.
 - showers
 - cafeteria
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Orders a full-scale riot as cover, gets guards reassigned, provides muscle.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Offering him a way to hurt Crane (e.g. the ledger).
 - Showing boldness.
 

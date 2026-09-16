@@ -15,10 +15,10 @@ Can't resist a fight or a dare.
 - showers
 - cafeteria
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Starts a fight on cue as a distraction, holds a door against guards, carries heavy things.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Daring him.
 - Pointing him at Tank Moreau.
 

@@ -114,7 +114,7 @@ function createSessionFor() {
     environmentId: world.startEnvironment,
     direction: null,
     outcome: "intro",
-    summary: "Larry sits in his cell in Block A, planning his escape.",
+    summary: "Sloppy Joe sits in his cell in Block A, planning his escape.",
     clipUrl: media.intro,
     loopUrl: media.introLoop,
   };
@@ -311,7 +311,7 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   }
 
   // Idle loop on the closing close-up (success only)
-  // Constant think: no per-step loop; the client idles on the fixed "Larry thinking" macro loop instead.
+  // Constant think: no per-step loop; the client idles on the fixed "Sloppy Joe thinking" macro loop instead.
   if (outcome === "success" && makeVideo && settings.constantThink) {
     logEvent({ kind: "job", label: "idle loop skipped (constant think)", response: { saved: "~$0.14 and ~9s" } });
   }

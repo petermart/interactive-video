@@ -32,6 +32,6 @@ None
 - Disable the alarm sensor first (Pixel's help)
 - Sewer water masks scent from Kaiser
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Tripping the grate alarm
 - Water rising in a dead end (deadly)

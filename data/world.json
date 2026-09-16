@@ -12,14 +12,15 @@
     "loading-dock",
     "perimeter-fence",
     "sewer-drain",
-    "rooftop"
+    "rooftop",
+    "motor-pool"
   ],
   "characters": [
     {
       "id": "protagonist",
       "role": "hero",
-      "description": "Larry (inmate 4471). Lean, wiry young man, late 20s, sharp determined eyes, messy black hair with a single scar through the left eyebrow. Wears a RED prison jumpsuit (the only red jumpsuit in the prison), sleeves tied at the waist over a charcoal tank top, taped wrists, amber eyes, '4471' on his back.",
-      "image": "common-generated-assets/characters/larry-protagonist.png"
+      "description": "Sloppy Joe (inmate 4471). Lean, wiry young man, late 20s, sharp determined eyes, messy black hair with a single scar through the left eyebrow. Wears a RED prison jumpsuit (the only red jumpsuit in the prison), sleeves tied at the waist over a charcoal tank top, taped wrists, amber eyes, '4471' on his back.",
+      "image": "common-generated-assets/characters/sloppy-joe-protagonist.png"
     },
     {
       "id": "guard-01",
@@ -177,7 +178,9 @@
         "guard-station",
         "visitation",
         "yard",
-        "solitary"
+        "solitary",
+        "chapel",
+        "records-room"
       ],
       "image": "common-generated-assets/environments/hall-main.png"
     },
@@ -207,7 +210,8 @@
       "neighbors": [
         "showers",
         "loading-dock",
-        "utility-tunnels"
+        "utility-tunnels",
+        "boiler-room"
       ],
       "image": "common-generated-assets/environments/laundry.png"
     },
@@ -218,7 +222,8 @@
         "hall-main",
         "workshop",
         "perimeter-fence",
-        "guard-tower"
+        "guard-tower",
+        "motor-pool"
       ],
       "image": "common-generated-assets/environments/yard.png"
     },
@@ -228,7 +233,9 @@
       "neighbors": [
         "yard",
         "utility-tunnels",
-        "loading-dock"
+        "loading-dock",
+        "boiler-room",
+        "motor-pool"
       ],
       "image": "common-generated-assets/environments/workshop.png"
     },
@@ -237,7 +244,8 @@
       "description": "Sterile infirmary, curtained beds, medicine cabinet, barred windows.",
       "neighbors": [
         "hall-main",
-        "air-vents"
+        "air-vents",
+        "morgue"
       ],
       "image": "common-generated-assets/environments/infirmary.png"
     },
@@ -246,7 +254,8 @@
       "description": "Cramped library, tall shelves, law books, a cart of returns.",
       "neighbors": [
         "hall-main",
-        "air-vents"
+        "air-vents",
+        "chapel"
       ],
       "image": "common-generated-assets/environments/library.png"
     },
@@ -293,7 +302,8 @@
       "description": "Wood-paneled warden's office, safe, window overlooking the yard.",
       "neighbors": [
         "guard-station",
-        "rooftop"
+        "rooftop",
+        "records-room"
       ],
       "image": "common-generated-assets/environments/warden-office.png"
     },
@@ -320,7 +330,9 @@
         "workshop",
         "showers",
         "air-vents",
-        "sewer-drain"
+        "sewer-drain",
+        "boiler-room",
+        "morgue"
       ],
       "image": "common-generated-assets/environments/utility-tunnels.png"
     },
@@ -369,9 +381,61 @@
       "neighbors": [
         "kitchen",
         "laundry",
-        "workshop"
+        "workshop",
+        "motor-pool",
+        "morgue"
       ],
       "image": "common-generated-assets/environments/loading-dock.png"
+    },
+    {
+      "id": "chapel",
+      "description": "Prison chapel, worn pews, dusty stained glass, a padlocked organ loft above.",
+      "neighbors": [
+        "hall-main",
+        "library",
+        "records-room"
+      ],
+      "image": "common-generated-assets/environments/chapel.png"
+    },
+    {
+      "id": "boiler-room",
+      "description": "Boiler room, twin furnaces, iron catwalks, an ash chute in the far wall. Heat haze.",
+      "neighbors": [
+        "utility-tunnels",
+        "laundry",
+        "workshop"
+      ],
+      "image": "common-generated-assets/environments/boiler-room.png"
+    },
+    {
+      "id": "motor-pool",
+      "description": "Prison motor pool, transport vans over inspection pits, fuel drums, roll-up door to the yard road. Exit candidate.",
+      "neighbors": [
+        "loading-dock",
+        "yard",
+        "workshop"
+      ],
+      "image": "common-generated-assets/environments/motor-pool.png"
+    },
+    {
+      "id": "records-room",
+      "description": "Records room, filing cabinets to the ceiling, prison blueprints, a key cabinet behind wired glass.",
+      "neighbors": [
+        "warden-office",
+        "hall-main",
+        "chapel"
+      ],
+      "image": "common-generated-assets/environments/records-room.png"
+    },
+    {
+      "id": "morgue",
+      "description": "Prison morgue, steel drawers, a gurney, a zipped body bag tagged for collection.",
+      "neighbors": [
+        "infirmary",
+        "utility-tunnels",
+        "loading-dock"
+      ],
+      "image": "common-generated-assets/environments/morgue.png"
     }
   ]
 }

@@ -35,6 +35,6 @@ Big Oso (neighboring cell), Wren (upper tier)
 - Fake illness to get escorted out
 - Signal Wren or Oso through the wall
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Missing at headcount without a decoy
 - Loud banging on the vent

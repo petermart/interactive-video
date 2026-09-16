@@ -37,6 +37,6 @@ Chef Beaux, Rizzo
 - Bacon to distract Kaiser
 - Flour cloud to blind guards
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Getting locked in the freezer
 - Stealing knives (chains, instant alarm)

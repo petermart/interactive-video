@@ -15,10 +15,10 @@ Only sees what his searchlight and scope point at. Blinded by bright light or sm
 - perimeter-fence (covers it from the tower)
 - rooftop (in view)
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Never.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Mirrors or light reflected into the scope.
 - Smoke or steam cover.
 - Moving during the shift change.

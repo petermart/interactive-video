@@ -15,10 +15,10 @@ Overconfident in the camera system. Trusts what the monitors show her.
 - hall-main
 - warden-office
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Never. But her radio calls reveal patrol routes if overheard.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Blinding or looping a camera fools her.
 - Overheard radio chatter gives timing windows.
 

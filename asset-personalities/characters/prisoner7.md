@@ -15,10 +15,10 @@ Refuses to join a sloppy plan; needs a clear objective.
 - workshop
 - cell-block-tier
 
-## How they can help Larry
+## How they can help Sloppy Joe
 Times guard patrols, teaches silent movement, knows how to cross open ground under a searchlight.
 
-## How Larry can exploit or win them over
+## How Sloppy Joe can exploit or win them over
 - Presenting a clear, clever plan.
 - Asking for patrol timing.
 

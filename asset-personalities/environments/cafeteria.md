@@ -33,6 +33,6 @@ Chef Beaux, Knuckles, King Vargas, Pixel, Aces
 - Hide in Chef Beaux's food cart
 - Trade dessert for Gus's attention
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Climbing on tables in plain view
 - A riot that triggers lockdown before he's out

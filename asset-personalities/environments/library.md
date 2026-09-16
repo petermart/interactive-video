@@ -31,6 +31,6 @@ Big Oso, Pixel, Maya Lin
 - Pixel loops cameras from the terminal
 - Hide inside the book cart
 
-## What gets Larry caught (or killed)
+## What gets Sloppy Joe caught (or killed)
 - Knocking over a shelf
 - Terminal hack traced by Parsons
