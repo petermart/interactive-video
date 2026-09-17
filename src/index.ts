@@ -14,6 +14,8 @@ import { analyticsToken } from "./server/analytics";
 import { auth, authBaseUrl, authEnabled, authSecret, callbackUrlFor, configuredProviders, currentUser, reloadAuth } from "./server/auth";
 import { PROVIDER_IDS, providerStatus, saveProvider } from "./server/authConfig";
 import { checkQuota, guestCookie, identifyGuest, recordGameCompleted, recordGeneration } from "./server/quota";
+import { migrateOnBootIfRequested } from "./server/migrateVolume";
+import { startRetention } from "./server/retention";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The per-browser-session viewer UUID sent by the client, if valid. */
@@ -321,3 +323,9 @@ const server = serve({
 });
 
 console.log(`Escape from Slop Prison running at ${server.url}`);
+
+// One-off: MIGRATE_VOLUME_TO_R2=1 moves the volume's media into R2 from inside the container. Runs after
+// listen so the health check passes while it works.
+migrateOnBootIfRequested();
+// Debug history grows without bound and shares the volume with everything else.
+startRetention();

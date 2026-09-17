@@ -2,7 +2,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { CACHE_DIR, keys, MEDIA_DIR, ROOT } from "./config";
 import { logEvent, traced } from "./db";
 import { isRetryableStatus, RetryableHttpError, withRetry } from "./net";
-import { putBytes, r2Enabled } from "./storage";
+import { putFile } from "./storage";
 
 const API = "https://api.machgen.ai/api/v0";
 const auth = { Authorization: `Bearer ${keys.machgen}` };
@@ -69,9 +69,10 @@ No music.`;
         if (!res.ok) throw isRetryableStatus(res.status) ? new RetryableHttpError(`download ${res.status}`) : new Error(`download ${res.status}`);
         return res.arrayBuffer();
       });
-      // Straight to R2 when configured, so the container keeps no copy. If R2 is off or at its cap,
-      // the clip stays on disk and is served from there rather than being thrown away.
-      if (!(await putBytes(`cache/${taskId}.mp4`, bytes))) await Bun.write(file, bytes);
+      // Written locally first even when R2 is configured: the pipeline still has to run ffmpeg over this
+      // clip to pull its last frame, and ffmpeg needs a real file. releaseLocalCopy() drops it afterwards.
+      await Bun.write(file, bytes);
+      await putFile(`cache/${taskId}.mp4`, file);
       return {
         taskId,
         file,
@@ -142,10 +143,23 @@ export function uploadAsset(repoPath: string) {
   return ref;
 }
 
-/** Extracts the last frame of a video as a PNG (ffmpeg). */
+/**
+ * Extracts the last frame of a video as a PNG (ffmpeg).
+ *
+ * Reports what actually went wrong: the bare "ffmpeg failed" this used to throw gave no way to tell a
+ * missing input file from a missing ffmpeg binary from a corrupt download, and this failure blocks the
+ * story (the next clip opens on this frame).
+ */
 export async function lastFrame(videoFile: string) {
   const out = videoFile.replace(/\.mp4$/, "-last.png");
-  const proc = Bun.spawn(["ffmpeg", "-v", "error", "-y", "-sseof", "-0.1", "-i", videoFile, "-frames:v", "1", "-update", "1", out]);
-  if ((await proc.exited) !== 0) throw new Error(`ffmpeg failed extracting last frame of ${videoFile}`);
+  if (!existsSync(videoFile)) throw new Error(`No clip to read the last frame from: ${videoFile} does not exist`);
+  const proc = Bun.spawn(["ffmpeg", "-v", "error", "-y", "-sseof", "-0.1", "-i", videoFile, "-frames:v", "1", "-update", "1", out], {
+    stderr: "pipe",
+  });
+  const stderr = await new Response(proc.stderr).text();
+  if ((await proc.exited) !== 0) {
+    throw new Error(`ffmpeg failed extracting last frame of ${videoFile}: ${stderr.trim().slice(-400) || "no output (is ffmpeg installed?)"}`);
+  }
+  if (!existsSync(out)) throw new Error(`ffmpeg reported success but wrote no frame for ${videoFile}`);
   return out;
 }

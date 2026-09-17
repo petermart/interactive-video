@@ -1,7 +1,7 @@
 import { S3Client } from "bun";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { db, logEvent } from "./db";
+import { db, logEvent, tryExec, tryQuery } from "./db";
 
 /**
  * Object storage for everything this server generates: step clips, stitched exports, share thumbnails and
@@ -52,7 +52,8 @@ export const PRESIGN_TTL_SECONDS = 60 * 60;
  * every upload, so each write and delete is mirrored here. Summing this table gives a projected bill and a
  * cap that can be enforced synchronously, before a byte is sent.
  */
-db.exec(`
+/** The ledger is bookkeeping: if it cannot be created (a full disk, say) the server still serves. */
+const LEDGER_DDL = `
   CREATE TABLE IF NOT EXISTS stored_objects (
     key TEXT PRIMARY KEY,
     bytes INTEGER NOT NULL,
@@ -60,7 +61,10 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
   CREATE INDEX IF NOT EXISTS stored_objects_kind ON stored_objects(kind);
-`);
+`;
+let ledgerReady = tryExec("storage ledger", LEDGER_DDL);
+/** Retried on use, so the ledger comes back by itself once a migration has freed space. */
+const ensureLedger = () => (ledgerReady ||= tryExec("storage ledger", LEDGER_DDL));
 
 /** R2 standard storage, USD per GB-month. Egress is free, which is why it is absent from this projection. */
 export const R2_USD_PER_GB_MONTH = 0.015;
@@ -73,27 +77,41 @@ const CAP_BYTES = CAP_GB * 1e9;
 /** What one stored object is projected to cost per month at R2's storage rate. */
 export const objectCostUsdPerMonth = (bytes: number) => (bytes / 1e9) * R2_USD_PER_GB_MONTH;
 
-const insertObject = db.prepare(
-  `INSERT INTO stored_objects (key, bytes, kind) VALUES ($key, $bytes, $kind)
-   ON CONFLICT(key) DO UPDATE SET bytes = $bytes`,
-);
+/**
+ * Prepared lazily: preparing a statement against a table that does not exist throws, and at import time that
+ * would crash the server before it could listen - the same failure mode as creating the table eagerly.
+ */
+let insertObject: ReturnType<typeof db.prepare> | null = null;
+const insertStatement = () =>
+  (insertObject ??= db.prepare(
+    `INSERT INTO stored_objects (key, bytes, kind) VALUES ($key, $bytes, $kind)
+     ON CONFLICT(key) DO UPDATE SET bytes = $bytes`,
+  ));
 
 /** Top-level prefix ("cache", "exports", "frames") so usage can be broken down by what produced it. */
 const kindOf = (key: string) => key.split("/")[0] ?? "other";
 
-const recordObject = (key: string, bytes: number) => insertObject.run({ $key: key, $bytes: bytes, $kind: kindOf(key) });
-const forgetObject = (key: string) => db.query(`DELETE FROM stored_objects WHERE key = ?`).run(key);
+const recordObject = (key: string, bytes: number) =>
+  ensureLedger() && tryQuery(() => insertStatement().run({ $key: key, $bytes: bytes, $kind: kindOf(key) }), undefined, "ledger insert");
+const forgetObject = (key: string) =>
+  ensureLedger() && tryQuery(() => db.query(`DELETE FROM stored_objects WHERE key = ?`).run(key), undefined, "ledger delete");
 
 export type StorageUsage = ReturnType<typeof storageUsage>;
 
 /** Projected bucket usage and what it would cost, from the ledger rather than a live API call. */
 export function storageUsage() {
-  const total = db.query<{ bytes: number | null; objects: number }, []>(
-    `SELECT SUM(bytes) AS bytes, COUNT(*) AS objects FROM stored_objects`,
-  ).get();
-  const byKind = db.query<{ kind: string; bytes: number; objects: number }, []>(
-    `SELECT kind, SUM(bytes) AS bytes, COUNT(*) AS objects FROM stored_objects GROUP BY kind ORDER BY bytes DESC`,
-  ).all();
+  // An unavailable ledger reports zero rather than throwing: the panel degrades, the game keeps running.
+  const usable = ensureLedger();
+  const total = usable
+    ? tryQuery(() => db.query<{ bytes: number | null; objects: number }, []>(
+        `SELECT SUM(bytes) AS bytes, COUNT(*) AS objects FROM stored_objects`,
+      ).get(), null, "ledger total")
+    : null;
+  const byKind = usable
+    ? tryQuery(() => db.query<{ kind: string; bytes: number; objects: number }, []>(
+        `SELECT kind, SUM(bytes) AS bytes, COUNT(*) AS objects FROM stored_objects GROUP BY kind ORDER BY bytes DESC`,
+      ).all(), [], "ledger by kind")
+    : [];
 
   const bytes = total?.bytes ?? 0;
   const gb = bytes / 1e9;
@@ -185,6 +203,24 @@ export async function putFile(key: string, localPath: string) {
 export async function offload(key: string, localPath: string) {
   if (!client) return false;
   if (!(await putFile(key, localPath))) return false;
+  rmSync(localPath, { force: true });
+  return true;
+}
+
+/**
+ * Drops a local working copy once R2 definitely has the object.
+ *
+ * Generated clips are written to disk first because the pipeline runs ffmpeg over them to extract the last
+ * frame, and ffmpeg cannot read from a bucket. This is the other half of that: the file goes away as soon
+ * as it has been used, so the container still keeps nothing long-term.
+ *
+ * Deliberately verifies the upload landed before deleting. If R2 is off, or the object is not there (the
+ * cap refused it), the local copy is kept and served from disk instead.
+ */
+export async function releaseLocalCopy(localPath: string, mediaUrl: string) {
+  if (!client) return false;
+  const key = keyForMediaUrl(mediaUrl);
+  if (!key || !(await objectExists(key))) return false;
   rmSync(localPath, { force: true });
   return true;
 }

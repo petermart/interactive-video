@@ -7,6 +7,8 @@ type Report = {
   library: { clips: number; reuses: number; saved_usd: number | null } | null;
   /** The admin password is still the public fallback from the open-source repo. */
   publicDefaultPassword: boolean;
+  /** Debug database size: it shares the deploy volume with everything else. */
+  dbBytes: number;
   storage: {
     enabled: boolean;
     gb: number;
@@ -163,6 +165,7 @@ export function AdminCredits() {
             ? `(inside the ${storage.freeTierGb} GB free tier; would be $${storage.grossMonthlyUsd.toFixed(2)} without it)`
             : `(${storage.freeTierGb} GB free tier exceeded)`}
           {!storage.enabled && " · R2 not configured, serving from disk"}
+          {` · debug db ${(report.dbBytes / 1e6).toFixed(0)} MB on the volume`}
         </div>
         {storage.byKind.length > 0 && (
           <div className="mt-1 flex flex-wrap gap-x-3 text-xs text-white/30">

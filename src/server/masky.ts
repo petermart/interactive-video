@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { CACHE_DIR, FRAMES_DIR, keys, publicBaseUrl } from "./config";
 import { logEvent, traced } from "./db";
 import { isRetryableStatus, RetryableHttpError, withRetry } from "./net";
-import { putBytes, r2Enabled } from "./storage";
+import { putBytes, putFile } from "./storage";
 
 const API = "https://masky.ai/api";
 const auth = { Authorization: `Bearer ${keys.masky}`, "Content-Type": "application/json" };
@@ -107,9 +107,10 @@ export async function generateMaskyVideo({ prompt, firstFrameFile, lastFrameFile
         if (!res.ok) throw isRetryableStatus(res.status) ? new RetryableHttpError(`download ${res.status}`) : new Error(`download ${res.status}`);
         return res.arrayBuffer();
       });
-      // Straight to R2 when configured, so the container keeps no copy. If R2 is off or at its cap,
-      // the clip stays on disk and is served from there rather than being thrown away.
-      if (!(await putBytes(`cache/masky-${id}.mp4`, bytes))) await Bun.write(file, bytes);
+      // Written locally first even when R2 is configured: the pipeline runs ffmpeg over this clip to pull
+      // its last frame, and ffmpeg needs a real file. releaseLocalCopy() drops it afterwards.
+      await Bun.write(file, bytes);
+      await putFile(`cache/masky-${id}.mp4`, file);
       logEvent({ kind: "video", label: "masky clip ready", response: { id, slug: gen.slug, seconds: gen.seconds, creditCost: gen.creditCost } });
       return { taskId: id, file, url: `/media/cache/masky-${id}.mp4`, seconds: gen.seconds, creditCost: gen.creditCost };
     },

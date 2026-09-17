@@ -149,3 +149,34 @@ export function jobEvents(jobId: string, viewerId: string) {
 export function looseEvents(viewerId: string, limit = 50) {
   return db.query(`SELECT * FROM events WHERE job_id IS NULL AND viewer_id = ? ORDER BY id DESC LIMIT ?`).all(viewerId, limit);
 }
+
+/**
+ * Runs schema DDL without letting a failure take the server down.
+ *
+ * Tables are created at import time, so an exception here happens before the server can listen - and a
+ * server that cannot boot cannot run the one migration that would fix the underlying problem. That is
+ * exactly what happened when the volume filled: SQLite could not write the new tables, and the deploy
+ * crash-looped. Bookkeeping must degrade, never block.
+ *
+ * Returns whether the schema is usable, so callers can retry later (after a migration frees space) rather
+ * than assuming their tables exist.
+ */
+export function tryExec(label: string, sql: string) {
+  try {
+    db.exec(sql);
+    return true;
+  } catch (err) {
+    console.error(`[schema] ${label} unavailable: ${String(err)}`);
+    return false;
+  }
+}
+
+/** Wraps a read so a missing or unwritable table degrades to a fallback instead of throwing. */
+export function tryQuery<T>(fn: () => T, fallback: T, label = "query"): T {
+  try {
+    return fn();
+  } catch (err) {
+    console.error(`[schema] ${label} failed: ${String(err)}`);
+    return fallback;
+  }
+}

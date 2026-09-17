@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { GuestPolicy } from "./constants";
-import { db, logEvent } from "./db";
+import { db, logEvent, tryExec, tryQuery } from "./db";
 
 /**
  * How much an unsigned-in viewer is allowed to do, and how we decide who they are.
@@ -15,7 +15,7 @@ import { db, logEvent } from "./db";
  * soft gate that makes signing in the path of least resistance, not DRM.
  */
 
-db.exec(`
+tryExec("guest usage", `
   CREATE TABLE IF NOT EXISTS guest_usage (
     id TEXT PRIMARY KEY,
     kind TEXT NOT NULL,            -- 'cookie' or 'ip'
@@ -88,21 +88,27 @@ export function identifyGuest(req: Request): Guest {
   return { cookieId: existing ?? crypto.randomUUID(), ip: clientIp(req), issueCookie: !existing };
 }
 
-const upsert = db.prepare(
-  `INSERT INTO guest_usage (id, kind) VALUES ($id, $kind)
-   ON CONFLICT(id) DO UPDATE SET last_seen = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
-);
+/** Prepared lazily: preparing against a table that does not exist throws, which at import time is fatal. */
+const cache = new Map<string, ReturnType<typeof db.prepare>>();
+const prepared = (key: string, sql: string) => {
+  const hit = cache.get(key);
+  if (hit) return hit;
+  const stmt = db.prepare(sql);
+  cache.set(key, stmt);
+  return stmt;
+};
+const upsert = () =>
+  prepared("upsert", `INSERT INTO guest_usage (id, kind) VALUES ($id, $kind)
+   ON CONFLICT(id) DO UPDATE SET last_seen = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`);
 const bump = (column: "generations" | "games_completed") =>
-  db.prepare(`UPDATE guest_usage SET ${column} = ${column} + 1, last_seen = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = $id`);
-const bumpGenerations = bump("generations");
-const bumpGames = bump("games_completed");
+  prepared(column, `UPDATE guest_usage SET ${column} = ${column} + 1, last_seen = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = $id`);
 
 type Usage = { generations: number; games_completed: number };
+const NO_USAGE: Usage = { generations: 0, games_completed: 0 };
+/** A missing table reads as "no usage yet": guests are let through rather than blocked by a broken ledger. */
 const readUsage = (id: string): Usage =>
-  db.query<Usage, [string]>(`SELECT generations, games_completed FROM guest_usage WHERE id = ?`).get(id) ?? {
-    generations: 0,
-    games_completed: 0,
-  };
+  tryQuery(() => db.query<Usage, [string]>(`SELECT generations, games_completed FROM guest_usage WHERE id = ?`).get(id), null, "guest usage") ??
+  NO_USAGE;
 
 /**
  * What one visitor gets under each policy. `null` means "no limit on this axis".
@@ -176,8 +182,10 @@ export function recordGeneration(guest: Guest, signedIn: boolean) {
     [guest.cookieId, "cookie"],
     [`ip:${guest.ip}`, "ip"],
   ] as const) {
-    upsert.run({ $id: id, $kind: kind });
-    bumpGenerations.run({ $id: id });
+    tryQuery(() => {
+      upsert().run({ $id: id, $kind: kind });
+      bump("generations").run({ $id: id });
+    }, null, "record generation");
   }
 }
 
@@ -188,17 +196,19 @@ export function recordGameCompleted(guest: Guest, signedIn: boolean) {
     [guest.cookieId, "cookie"],
     [`ip:${guest.ip}`, "ip"],
   ] as const) {
-    upsert.run({ $id: id, $kind: kind });
-    bumpGames.run({ $id: id });
+    tryQuery(() => {
+      upsert().run({ $id: id, $kind: kind });
+      bump("games_completed").run({ $id: id });
+    }, null, "record game");
   }
   logEvent({ kind: "job", label: "guest finished a story", response: { policy: "guest" } });
 }
 
 /** Guest-gate figures for the admin panel. */
 export const quotaStats = () =>
-  db
+  tryQuery(() => db
     .query<{ guests: number; generations: number | null; games: number | null }, []>(
       `SELECT COUNT(*) AS guests, SUM(generations) AS generations, SUM(games_completed) AS games
        FROM guest_usage WHERE kind = 'cookie'`,
     )
-    .get();
+    .get(), null, "quota stats");

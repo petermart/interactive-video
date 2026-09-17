@@ -5,6 +5,7 @@ import { jobContext, loadJob, loadNode, logEvent, saveJob, saveNode } from "./db
 import { chatJSON } from "./gmi";
 import { existsSync } from "node:fs";
 import { generateVideo, hasAsset, lastFrame, MAX_IMAGE_REFS, uploadAsset, uploadFile, type VideoRequest } from "./machgen";
+import { releaseLocalCopy } from "./storage";
 import { generateMaskyVideo } from "./masky";
 import { diagnosticSystem, writerSystem } from "./prompts";
 
@@ -291,7 +292,9 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
           })
         : await generateVideo(await buildClipRequest(plan, from));
     node.clipUrl = clip.url;
+    // ffmpeg needs the clip on disk; once its last frame is out, the local copy has served its purpose.
     node.lastFrameFile = await lastFrame(clip.file);
+    await releaseLocalCopy(clip.file, clip.url);
     if (settings.reuseActions) {
       rememberClip({
         environmentId: from.environmentId,
