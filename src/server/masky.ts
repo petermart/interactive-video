@@ -16,7 +16,8 @@ const RATE = { "720p": { full: 0.025, draft: 0.015 }, "1080p": { full: 0.05, dra
  * deployed instance (MASKY_FRAME_HOST) using the admin password.
  */
 const FRAME_HOST = process.env.MASKY_FRAME_HOST ?? "https://prison-escape-production.up.railway.app";
-const FRAME_HOST_PASSWORD = process.env.FRAME_HOST_PASSWORD ?? "hackathon";
+// The deployed server's admin password; the legacy default only works until that server sets ADMIN_PASSWORD.
+const FRAME_HOST_PASSWORD = process.env.FRAME_HOST_PASSWORD ?? process.env.ADMIN_PASSWORD ?? "hackathon";
 
 /** Publishes a local image file and returns a public https URL Masky can fetch. */
 export async function publishFrame(file: string) {

@@ -5,6 +5,8 @@ type Report = {
   machgen: { balanceUsd: number | null; minBalanceUsd: number; generationPaused: boolean; pendingTasks: number; runningTasks: number; error?: string };
   gmi: { estimatedUsd: number; baselineUsd: number; baselineAt: string; spentSinceBaselineUsd: number; costedCalls: number };
   library: { clips: number; reuses: number; saved_usd: number | null } | null;
+  /** The admin password is still the public fallback from the open-source repo. */
+  publicDefaultPassword: boolean;
   storage: {
     enabled: boolean;
     gb: number;
@@ -114,6 +116,12 @@ export function AdminCredits() {
   const barColor = storage.overCap ? "bg-siren-red" : storage.percentOfCap > 75 ? "bg-sodium" : "bg-teal";
   return (
     <div className="mb-4 space-y-2 border-b border-white/10 pb-3">
+      {report.publicDefaultPassword && (
+        <div className="rounded border border-siren-red/60 bg-siren-red/10 p-2 text-xs text-siren-red">
+          <b>Admin password is the public default.</b> It is visible in this open-source repo, so anyone can unlock
+          these controls. Set ADMIN_PASSWORD on the server.
+        </div>
+      )}
       <div className="flex items-center justify-between text-white/70">
         <span>Credits</span>
         <button onClick={() => load()} className="text-xs text-teal hover:underline">

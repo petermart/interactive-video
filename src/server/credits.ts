@@ -14,12 +14,24 @@ export const MACHGEN_MIN_BALANCE_USD = 10;
  */
 export const GMI_BALANCE_BASELINE = { usd: 9.0, at: "2026-09-14T00:00:00.000Z" };
 
-/** SHA-256 of the admin password ("hackathon"). Only the hash is stored. */
-const ADMIN_PASSWORD_SHA256 = "a56f3dbc3053cc78282ebb4360025187945043453f94099157496b76530a404d";
+/**
+ * The admin password, from ADMIN_PASSWORD when set.
+ *
+ * Without it the server falls back to the original hackathon password, whose value is public: the repo is
+ * open source and it appears in the git history. That was tolerable when admin only showed balances, but
+ * admin now controls paid generation, the sign-in gate and OAuth credentials, so the panel warns loudly
+ * until a real one is set. Falling back rather than refusing keeps an existing deployment manageable.
+ */
+const LEGACY_ADMIN_PASSWORD_SHA256 = "a56f3dbc3053cc78282ebb4360025187945043453f94099157496b76530a404d";
+const sha256 = (value: string) => new Bun.CryptoHasher("sha256").update(value).digest("hex");
+const ADMIN_PASSWORD_SHA256 = process.env.ADMIN_PASSWORD ? sha256(process.env.ADMIN_PASSWORD) : LEGACY_ADMIN_PASSWORD_SHA256;
+
+/** True while the publicly known fallback password is still the one in force. */
+export const adminPasswordIsPublicDefault = () => !process.env.ADMIN_PASSWORD;
 
 export function checkAdminPassword(password: unknown) {
   if (typeof password !== "string") return false;
-  const given = Buffer.from(new Bun.CryptoHasher("sha256").update(password).digest("hex"));
+  const given = Buffer.from(sha256(password));
   const expected = Buffer.from(ADMIN_PASSWORD_SHA256);
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
@@ -108,5 +120,6 @@ export async function creditsReport() {
     library: libraryStats(),
     // Projected Cloudflare usage, always reported so the number is visible before it becomes a problem.
     storage: storageUsage(),
+    publicDefaultPassword: adminPasswordIsPublicDefault(),
   };
 }
