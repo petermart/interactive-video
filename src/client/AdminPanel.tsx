@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type LlmModelId, type OutcomeMode, type VideoProvider } from "../server/constants";
-import { AdminCredits } from "./AdminCredits";
+import { CREATIVITY_POINT_OPTIONS, GUEST_POLICIES, GUEST_POLICY_LABELS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type LlmModelId, type OutcomeMode, type VideoProvider } from "../server/constants";
+import { AdminAuth } from "./AdminAuth";
+import { AdminCredits, useAdminPassword } from "./AdminCredits";
 import { api, type Job, type Settings, type SettingsView } from "./api";
 
 const PROVIDER_HELP: Record<VideoProvider, string> = {
@@ -19,6 +20,9 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
   const [settings, setSettings] = useState<SettingsView | null>(null);
   /** Cap warning, from the public status endpoint: visible without unlocking, unlike the GB and the cost. */
   const [storageFull, setStorageFull] = useState(false);
+  /** Settings are read-only until the admin password has been accepted. */
+  const password = useAdminPassword();
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     api.settings().then(setSettings);
@@ -36,12 +40,23 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
   const usesNumbers = settings?.outcomeMode !== "vibes";
 
   const save = async (patch: Partial<Settings>) => {
+    if (!password) return setSaveError("Enter the admin password to change settings.");
+    const previous = settings;
     setSettings(s => (s ? { ...s, ...patch } : s));
-    setSettings(await api.saveSettings(patch));
+    try {
+      setSettings(await api.saveSettings(patch, password));
+      setSaveError("");
+    } catch (err) {
+      // Put the control back where it was: the server rejected the change, so the UI must not imply it stuck.
+      setSettings(previous);
+      setSaveError((err as Error).message);
+    }
   };
 
+  // Sits above the sign-in gate on purpose: setting the guest policy to "none" with no working provider
+  // would otherwise cover the only control that can undo it, locking the operator out of their own server.
   return (
-    <div className="absolute right-4 top-4 z-40 flex flex-col items-end gap-2">
+    <div className="absolute right-4 top-4 z-[60] flex flex-col items-end gap-2">
       <button
         onClick={() => setOpen(o => !o)}
         aria-label="Admin settings"
@@ -54,7 +69,9 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
       </button>
 
       {open && settings && (
-        <div className="w-80 rounded-lg border border-white/10 bg-black/80 p-4 font-mono text-sm backdrop-blur-md">
+        // Capped to the viewport below the gear button and scrolled internally: the panel has outgrown a
+        // laptop screen, and the page itself cannot scroll because the game fills it.
+        <div className="max-h-[calc(100dvh-6rem)] w-80 overflow-y-auto overscroll-contain rounded-lg border border-white/10 bg-black/80 p-4 font-mono text-sm backdrop-blur-md">
           <h2 className="mb-3 font-display text-xs font-semibold tracking-[0.3em] text-teal">ADMIN // CONTROL ROOM</h2>
           {storageFull && (
             <div className="mb-3 rounded border border-siren-red/60 bg-siren-red/10 p-2 text-xs text-siren-red">
@@ -63,6 +80,47 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
             </div>
           )}
           <AdminCredits />
+          <AdminAuth />
+
+          {saveError && <div className="mb-3 rounded border border-siren-red/50 bg-siren-red/10 p-2 text-xs text-siren-red">{saveError}</div>}
+
+          {/*
+            Everything below changes how the game spends money or who has to sign in, so it is inert until
+            the password is known. The controls stay visible (and readable) rather than hidden, so an
+            operator can see the current configuration before unlocking.
+          */}
+          <fieldset disabled={!password} className={password ? "" : "opacity-60"}>
+            {!password && (
+              <div className="mb-3 rounded border border-sodium/40 bg-sodium/10 p-2 text-xs text-sodium">
+                Read-only. Enter the admin password above to change any of these.
+              </div>
+            )}
+
+          {/* The sign-in gate: how much a viewer gets before being asked to sign in. */}
+          <div className="text-white/70">Guests may play</div>
+          <select
+            value={settings.guestPolicy}
+            onChange={e => save({ guestPolicy: e.target.value as SettingsView["guestPolicy"] })}
+            className="mt-1 w-full rounded border border-white/15 bg-white/5 px-2 py-1 text-white"
+          >
+            {GUEST_POLICIES.map(p => (
+              <option key={p} value={p} className="bg-black">
+                {GUEST_POLICY_LABELS[p]}
+              </option>
+            ))}
+          </select>
+          {/* Otherwise the operator believes guests are gated while every visitor walks straight through. */}
+          {settings.guestPolicy !== "unlimited" && !settings.authEnabled && (
+            <div className="mt-1 rounded border border-sodium/40 bg-sodium/10 p-2 text-xs text-sodium">
+              <b>Not enforced yet.</b> No sign-in provider is configured, so guests play without limits until Google or
+              Facebook is set up under Sign-in providers above.
+            </div>
+          )}
+          <div className="mb-3 mt-1 text-xs text-white/40">
+            {settings.guestPolicy === "unlimited"
+              ? "Nobody is asked to sign in."
+              : "Signed-in viewers are never limited. Guests are tracked per browser, with a looser limit per network so shared wifi isn't blocked by one person."}
+          </div>
 
           <div className="text-white/70">Success decided by</div>
           <div className="mt-1 grid grid-cols-3 overflow-hidden rounded border border-white/15">
@@ -182,6 +240,7 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
               onChange={id => save({ writerModel: id })}
             />
           </div>
+          </fieldset>
 
           {lastDebug && (
             <div className="mt-4 space-y-1 border-t border-white/10 pt-3 text-xs text-white/60">

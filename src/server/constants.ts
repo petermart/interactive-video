@@ -25,6 +25,24 @@ export type VideoProvider = (typeof VIDEO_PROVIDERS)[number];
 export const SCENE_TEXT_SECS = 15;
 
 /**
+ * How much a viewer may do before signing in. The gate exists to make signing in worthwhile without
+ * making the first taste of the game cost anything, so the default lets someone finish one story.
+ * - unlimited:      no sign-in required, ever (how the hackathon build behaved).
+ * - one-game:       play one story to its ending, then sign in to start another.
+ * - one-generation: a single step, then sign in.
+ * - none:           sign in before generating anything.
+ */
+export const GUEST_POLICIES = ["unlimited", "one-game", "one-generation", "none"] as const;
+export type GuestPolicy = (typeof GUEST_POLICIES)[number];
+
+export const GUEST_POLICY_LABELS: Record<GuestPolicy, string> = {
+  unlimited: "No sign-in needed",
+  "one-game": "One full game, then sign in",
+  "one-generation": "One generation, then sign in",
+  none: "Sign in before generating",
+};
+
+/**
  * LLM choices for the admin dropdowns. Speeds measured 2026-09-13 on GMI with the real diagnostic prompt
  * (~2.2k tokens in); the shot writer returns longer output, so expect it to take somewhat longer.
  */

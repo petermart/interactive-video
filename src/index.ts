@@ -10,6 +10,10 @@ import { shareInfo, sharePage } from "./server/share";
 import { createSession, getJob, getNode, startDirection } from "./server/pipeline";
 import { objectExists, presignGet, PRESIGN_TTL_SECONDS, putBytes, r2Enabled, storageFull } from "./server/storage";
 import { markDownloaded, viewerLeft } from "./server/ephemeral";
+import { analyticsToken } from "./server/analytics";
+import { auth, authBaseUrl, authEnabled, authSecret, callbackUrlFor, configuredProviders, currentUser, reloadAuth } from "./server/auth";
+import { PROVIDER_IDS, providerStatus, saveProvider } from "./server/authConfig";
+import { checkQuota, guestCookie, identifyGuest, recordGameCompleted, recordGeneration } from "./server/quota";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The per-browser-session viewer UUID sent by the client, if valid. */
@@ -54,6 +58,13 @@ function generatedFrom(base: string, prefix: string) {
   };
 }
 
+/**
+ * The guest policy actually in force. A policy that requires sign-in is only enforced once at least one
+ * provider works: with none configured, enforcing it would block every visitor behind a sign-in screen
+ * that has no buttons, locking the public out of the game. The admin panel warns about this instead.
+ */
+const effectivePolicy = () => (authEnabled() ? getSettings().guestPolicy : "unlimited");
+
 const server = serve({
   port: Number(process.env.PORT ?? 3000),
   routes: {
@@ -67,9 +78,22 @@ const server = serve({
     "/media/*": staticFrom(MEDIA_DIR, "/media/"),
     "/hyperframes/*": staticFrom(`${ROOT}hyperframes`, "/hyperframes/"),
 
+    /**
+     * Settings are world-readable (the client needs them to render) but admin-only to change.
+     *
+     * Without the check on PUT, anyone could set guestPolicy to "unlimited" and walk straight through the
+     * sign-in gate, or switch liveVideo on and spend the MachGen balance. The password travels in a header
+     * so the body stays a plain settings patch.
+     */
     "/api/settings": {
-      GET: () => Response.json({ ...getSettings(), maskyAvailable: maskyAvailable() }),
-      PUT: async req => Response.json({ ...(await updateSettings(await req.json())), maskyAvailable: maskyAvailable() }),
+      // authEnabled lets the panel warn when a sign-in policy is set but cannot be enforced yet.
+      GET: () => Response.json({ ...getSettings(), maskyAvailable: maskyAvailable(), authEnabled: authEnabled() }),
+      PUT: async req => {
+        if (!checkAdminPassword(req.headers.get("x-admin-password"))) {
+          return Response.json({ error: "Admin password required to change settings" }, { status: 401 });
+        }
+        return Response.json({ ...(await updateSettings(await req.json())), maskyAvailable: maskyAvailable(), authEnabled: authEnabled() });
+      },
     },
 
     "/api/session": {
@@ -109,7 +133,14 @@ const server = serve({
     "/api/status": async () => {
       const paused = getSettings().liveVideo && !(await videoGenerationAllowed());
       // Enough for the settings panel to warn without unlocking; the GB and cost stay behind the password.
-      return Response.json({ generationPaused: paused, minBalanceUsd: MACHGEN_MIN_BALANCE_USD, storageFull: storageFull() });
+      // The analytics token is public by design (it ships in the HTML of every page) and identifies the
+      // site rather than granting access, so serving it here is safe.
+      return Response.json({
+        generationPaused: paused,
+        minBalanceUsd: MACHGEN_MIN_BALANCE_USD,
+        storageFull: storageFull(),
+        analyticsToken: analyticsToken(),
+      });
     },
 
     // Admin-only credit balances (password checked against a stored SHA-256 hash).
@@ -135,6 +166,39 @@ const server = serve({
         if (!(await putBytes(`frames/${id}`, bytes))) await Bun.write(`${FRAMES_DIR}/${id}`, bytes);
         const base = publicBaseUrl() ?? new URL(req.url).origin;
         return Response.json({ url: `${base}/media/frames/${id}` });
+      },
+    },
+
+    // Better Auth owns everything under /api/auth: the OAuth redirects, callbacks and session endpoints.
+    // Resolved per request, because credentials can be edited from the admin panel while the server runs.
+    "/api/auth/*": req => auth().handler(req),
+
+    /**
+     * Sign-in provider setup, so OAuth can be finished on a running server instead of needing a redeploy.
+     * Password-gated like the credit balances. Client secrets are write-only here: the response says
+     * whether a secret exists, never what it is.
+     */
+    "/api/admin/auth": {
+      POST: async req => {
+        const body = await req.json().catch(() => ({}));
+        if (!checkAdminPassword(body.password)) return Response.json({ error: "Wrong password" }, { status: 401 });
+
+        if (body.provider) {
+          if (!PROVIDER_IDS.includes(body.provider)) return Response.json({ error: "Unknown provider" }, { status: 400 });
+          try {
+            await saveProvider(body.provider, String(body.clientId ?? ""), String(body.clientSecret ?? ""));
+            reloadAuth();
+          } catch (err) {
+            return Response.json({ error: String((err as Error)?.message ?? err) }, { status: 400 });
+          }
+        }
+        return Response.json({
+          providers: providerStatus().map(p => ({ ...p, callbackUrl: callbackUrlFor(p.id) })),
+          enabled: authEnabled(),
+          baseUrl: authBaseUrl(),
+          // A weak secret makes every session forgeable, so surface it where it will actually be seen.
+          weakSecret: authSecret().length < 32,
+        });
       },
     },
 
@@ -189,12 +253,58 @@ const server = serve({
       POST: async req => {
         const { fromNodeId, direction } = await req.json();
         if (!direction?.trim()) return Response.json({ error: "Empty direction" }, { status: 400 });
+
+        // The sign-in gate. Signed-in users pass straight through; guests are measured against the policy.
+        const guest = identifyGuest(req);
+        const signedIn = Boolean(await currentUser(req));
+        const verdict = checkQuota(guest, effectivePolicy(), signedIn);
+        if (!verdict.allowed) {
+          return Response.json(
+            { error: verdict.reason, requiresSignIn: verdict.requiresSignIn, providers: configuredProviders() },
+            { status: 401, headers: guest.issueCookie ? { "set-cookie": guestCookie(guest.cookieId) } : {} },
+          );
+        }
+
         try {
           const job = startDirection(fromNodeId, direction, viewerOf(req));
-          return Response.json({ jobId: job.id });
+          recordGeneration(guest, signedIn);
+          return Response.json(
+            { jobId: job.id },
+            { headers: guest.issueCookie ? { "set-cookie": guestCookie(guest.cookieId) } : {} },
+          );
         } catch (err) {
           return Response.json({ error: String(err) }, { status: 400 });
         }
+      },
+    },
+
+    /** Who the viewer is and what they are still allowed to do, so the client can gate its own UI. */
+    "/api/me": async req => {
+      const guest = identifyGuest(req);
+      const user = await currentUser(req);
+      const verdict = checkQuota(guest, effectivePolicy(), Boolean(user));
+      return Response.json(
+        {
+          signedIn: Boolean(user),
+          name: user?.name ?? null,
+          image: user?.image ?? null,
+          authEnabled: authEnabled(),
+          providers: configuredProviders(),
+          policy: verdict.policy,
+          used: verdict.used,
+          canGenerate: verdict.allowed,
+          blockedReason: verdict.allowed ? null : verdict.reason,
+        },
+        { headers: guest.issueCookie ? { "set-cookie": guestCookie(guest.cookieId) } : {} },
+      );
+    },
+
+    /** Counts a finished story against the guest's allowance, so "one full game" can end. */
+    "/api/game-complete": {
+      POST: async req => {
+        const guest = identifyGuest(req);
+        recordGameCompleted(guest, Boolean(await currentUser(req)));
+        return new Response(null, { status: 204 });
       },
     },
 

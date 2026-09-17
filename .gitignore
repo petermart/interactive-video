@@ -9,3 +9,6 @@ media/intro/refs/
 data/debug.sqlite*
 media/exports/
 .prod-data/
+
+# Provider credentials entered through the admin panel (client ids and secrets).
+data/auth-providers.json

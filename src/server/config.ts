@@ -9,7 +9,7 @@ export const MEDIA_DIR = `${ROOT}media`;
  * Writable state. Locally it stays where it always was; in a container set STORAGE_DIR to a persistent volume
  * (e.g. /data) and generated clips, exports, settings and the debug DB all live there.
  */
-const STORAGE_DIR = process.env.STORAGE_DIR?.replace(/\/+$/, "");
+export const STORAGE_DIR = process.env.STORAGE_DIR?.replace(/\/+$/, "");
 export const CACHE_DIR = STORAGE_DIR ? `${STORAGE_DIR}/cache` : `${MEDIA_DIR}/cache`;
 export const EXPORT_DIR = STORAGE_DIR ? `${STORAGE_DIR}/exports` : `${MEDIA_DIR}/exports`;
 export const DB_FILE = STORAGE_DIR ? `${STORAGE_DIR}/debug.sqlite` : `${ROOT}data/debug.sqlite`;
@@ -64,7 +64,7 @@ export type World = {
 };
 export const world = worldJson as World;
 
-import { CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type LlmModelId, type OutcomeMode, type VideoProvider } from "./constants";
+import { CREATIVITY_POINT_OPTIONS, GUEST_POLICIES, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type GuestPolicy, type LlmModelId, type OutcomeMode, type VideoProvider } from "./constants";
 export { CREATIVITY_POINT_OPTIONS, OUTCOME_MODES, type OutcomeMode };
 
 export type Settings = {
@@ -90,6 +90,8 @@ export type Settings = {
   analysisModel: LlmModelId;
   /** LLM 2 (shot writer): quality of the H3 prompt matters more. */
   writerModel: LlmModelId;
+  /** How much an unsigned-in viewer may do before being asked to sign in. */
+  guestPolicy: GuestPolicy;
 };
 
 const defaults: Settings = {
@@ -107,6 +109,8 @@ const defaults: Settings = {
   matchModel: "google/gemma-4-26b-a4b-it",
   analysisModel: "google/gemini-3.5-flash-lite",
   writerModel: "google/gemini-3.5-flash-lite",
+  // Existing deployments keep behaving as they did until this is deliberately tightened.
+  guestPolicy: "unlimited",
 };
 
 let settings: Settings = defaults;
@@ -132,6 +136,7 @@ export async function updateSettings(patch: Partial<Settings>) {
   next.constantThink = Boolean(next.constantThink);
   next.reuseActions = Boolean(next.reuseActions);
   next.showClipSource = Boolean(next.showClipSource);
+  if (!GUEST_POLICIES.includes(next.guestPolicy)) next.guestPolicy = settings.guestPolicy;
   if (!VIDEO_PROVIDERS.includes(next.videoProvider)) next.videoProvider = settings.videoProvider;
   if (next.videoProvider === "masky" && !maskyAvailable()) next.videoProvider = "machgen";
   next.maskyDraft = Boolean(next.maskyDraft);

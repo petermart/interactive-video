@@ -3,6 +3,8 @@
  * no client bundle and is scrapeable, and so a link to it can be handed out on its own.
  */
 
+import { beaconTag } from "./analytics";
+
 export const REPO_URL = "https://github.com/petermart/interactive-video";
 const MASTER_PLAN_URL = `${REPO_URL}/blob/main/master-plan.md`;
 
@@ -97,6 +99,7 @@ export function aboutPage() {
 
   <footer>Escape from Slop Prison · built at Yes SF, San Francisco</footer>
 </main>
+${beaconTag()}
 </body>
 </html>`;
 }

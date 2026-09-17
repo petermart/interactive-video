@@ -4,10 +4,12 @@ import { CreditsBanner } from "./CreditsBanner";
 import { ShareBar } from "./ShareBar";
 import { DebugPanel } from "./DebugPanel";
 import { GeneratingHud } from "./GeneratingHud";
-import { api, type Job, type StoryNode } from "./api";
+import { api, ApiError, type Job, type StoryNode } from "./api";
 import { HyperFrame } from "./HyperFrame";
 import { PromptBar } from "./PromptBar";
 import { SceneText } from "./SceneText";
+import { fetchMe, SessionBadge, SignInGate, type Me } from "./SignInGate";
+import { apiFetch } from "./viewer";
 
 const MUSIC_VOLUME = 0.35;
 
@@ -70,6 +72,10 @@ export function App() {
   const [creditsExhausted, setCreditsExhausted] = useState(false);
   const [lastDebug, setLastDebug] = useState<Job["debug"] | null>(null);
   const [resume, setResume] = useState<Pending | null>(null);
+  /** Who the viewer is and what they have left under the current guest policy. */
+  const [me, setMe] = useState<Me | null>(null);
+  /** Lets someone dismiss the gate to watch their finished film before signing in. */
+  const [gateDismissed, setGateDismissed] = useState(false);
   const [showClipSource, setShowClipSource] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const musicRef = useRef<HTMLAudioElement>(null);
@@ -80,6 +86,9 @@ export function App() {
   const refreshDisplaySettings = () => api.settings().then(s => setShowClipSource(s.showClipSource)).catch(() => {});
   useEffect(() => {
     refreshDisplaySettings();
+    // Also establishes the guest cookie, so the allowance is tracked from the first visit rather than
+    // from the first generation.
+    fetchMe().then(setMe).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -214,9 +223,14 @@ export function App() {
   const onEnded = () => {
     // A non-looping intro can end while a direction is being processed; don't yank the viewer back to idle.
     if (!playing || phase === "working") return;
-    if (playing.outcome === "fail") setPhase("failed");
-    else if (playing.outcome === "escaped") setPhase("escaped");
-    else goIdle(playing);
+    if (playing.outcome === "fail" || playing.outcome === "escaped") {
+      // The story is over either way; that is what "one full game" counts.
+      setPhase(playing.outcome === "fail" ? "failed" : "escaped");
+      void apiFetch("/api/game-complete", { method: "POST" })
+        .then(() => fetchMe())
+        .then(setMe)
+        .catch(() => {});
+    } else goIdle(playing);
   };
 
   const direct = async (direction: string) => {
@@ -228,6 +242,13 @@ export function App() {
       writePending({ jobId, fromNodeId: current.id, rootId: root.id });
       await pollJob(jobId);
     } catch (err) {
+      // 401 from the gate is not a failure: it means this viewer needs to sign in to continue.
+      const blocked = err instanceof ApiError && err.status === 401;
+      if (blocked) {
+        setPhase("idle");
+        void fetchMe().then(setMe).catch(() => {});
+        return;
+      }
       flash(`Something broke: ${(err as Error).message}`);
       setPhase("idle");
     }
@@ -413,12 +434,27 @@ export function App() {
         </div>
       )}
 
+      {me?.signedIn && (
+        <div className="absolute bottom-4 left-5 z-30">
+          <SessionBadge me={me} />
+        </div>
+      )}
+
       <CreditsBanner forced={creditsExhausted} />
       <DebugPanel />
       <AdminPanel lastDebug={lastDebug} />
 
       {phase !== "start" && phase !== "failed" && phase !== "escaped" && (
         <PromptBar enabled={phase === "idle" || phase === "intro"} status={status} placeholder={placeholder} onSubmit={direct} />
+      )}
+
+      {/*
+        The sign-in gate. Held back on the start screen so the title card is never the first thing gated,
+        and dismissible on an ending so someone can watch and download the film they just made before
+        deciding to sign up.
+      */}
+      {me && !me.canGenerate && phase !== "start" && !gateDismissed && (
+        <SignInGate me={me} onDismiss={phase === "failed" || phase === "escaped" ? () => setGateDismissed(true) : undefined} />
       )}
     </main>
   );

@@ -1,3 +1,4 @@
+import { beaconTag } from "./analytics";
 import { publicBaseUrl } from "./config";
 import { logEvent } from "./db";
 import { ensureThumbnail, exportFilm, exportVertical } from "./export";
@@ -108,6 +109,7 @@ export async function sharePage(nodeId: string, requestOrigin: string) {
   <video src="${info.videoUrl}" poster="${info.thumbUrl}" controls playsinline preload="metadata"></video>
   <p>${d}</p>
   <a class="cta" href="${info.playUrl}">DIRECT YOUR OWN ESCAPE</a>
+${beaconTag()}
 </body>
 </html>`;
 }

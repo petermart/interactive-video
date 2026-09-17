@@ -19,7 +19,28 @@ type Report = {
   };
 };
 
-const PW_KEY = "prison-escape:admin-password";
+/** Shared with the other password-gated panels so unlocking once unlocks all of them for the session. */
+export const PW_KEY = "prison-escape:admin-password";
+/** Fired once the password has been accepted by the server, so locked panels can re-render. */
+export const ADMIN_UNLOCKED = "slop-prison:admin-unlocked";
+export const storedAdminPassword = () => {
+  try {
+    return sessionStorage.getItem(PW_KEY) ?? "";
+  } catch {
+    return "";
+  }
+};
+
+/** The admin password for this session, kept current as other panels unlock it. */
+export function useAdminPassword() {
+  const [password, setPassword] = useState(storedAdminPassword);
+  useEffect(() => {
+    const sync = () => setPassword(storedAdminPassword());
+    addEventListener(ADMIN_UNLOCKED, sync);
+    return () => removeEventListener(ADMIN_UNLOCKED, sync);
+  }, []);
+  return password;
+}
 
 /** Password-gated credit balances. The password is verified server-side against a stored hash. */
 export function AdminCredits() {
@@ -45,6 +66,9 @@ export function AdminCredits() {
       try {
         sessionStorage.setItem(PW_KEY, pw);
       } catch {}
+      // The settings controls and the provider panel are locked until a password is known to be good;
+      // tell them rather than making each one poll sessionStorage.
+      dispatchEvent(new Event(ADMIN_UNLOCKED));
     } catch (err) {
       setReport(null);
       setError((err as Error).message);
