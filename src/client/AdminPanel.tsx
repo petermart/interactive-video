@@ -5,6 +5,8 @@ import { AdminCredits, useAdminPassword } from "./AdminCredits";
 import { api, type Job, type Settings, type SettingsView } from "./api";
 
 const PROVIDER_HELP: Record<VideoProvider, string> = {
+  fal: "MiniMax H3 Max 480P on fal.ai, 9 reference images, ~$0.75 per 15s step. Fastest: ~9s per clip, and the clip starts playing before it is stored.",
+  gmi: "MiniMax H3 768P on GMI Cloud, 9 reference images, ~$1.20 per 15s step (GMI has no 480p).",
   machgen: "MiniMax H3 480p, 9 reference images, ~$0.75 per 15s step.",
   masky: "Masky 720p, continuity from the previous clip's last frame, ~$0.38 per 15s step.",
 };
@@ -80,21 +82,17 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
             </div>
           )}
           <AdminCredits />
-          <AdminAuth />
+          {/* Everything past the password field is operator-only: hidden, not just disabled, until unlocked. */}
+          {password && <AdminAuth />}
 
           {saveError && <div className="mb-3 rounded border border-siren-red/50 bg-siren-red/10 p-2 text-xs text-siren-red">{saveError}</div>}
 
           {/*
-            Everything below changes how the game spends money or who has to sign in, so it is inert until
-            the password is known. The controls stay visible (and readable) rather than hidden, so an
-            operator can see the current configuration before unlocking.
+            Everything below changes how the game spends money or who has to sign in. Players who don't have
+            the password can't use any of it, so it is hidden until the password has been accepted.
           */}
-          <fieldset disabled={!password} className={password ? "" : "opacity-60"}>
-            {!password && (
-              <div className="mb-3 rounded border border-sodium/40 bg-sodium/10 p-2 text-xs text-sodium">
-                Read-only. Enter the admin password above to change any of these.
-              </div>
-            )}
+          {password && (
+          <fieldset>
 
           {/* The sign-in gate: how much a viewer gets before being asked to sign in. */}
           <div className="text-white/70">Guests may play</div>
@@ -112,8 +110,8 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
           {/* Otherwise the operator believes guests are gated while every visitor walks straight through. */}
           {settings.guestPolicy !== "unlimited" && !settings.authEnabled && (
             <div className="mt-1 rounded border border-sodium/40 bg-sodium/10 p-2 text-xs text-sodium">
-              <b>Not enforced yet.</b> No sign-in provider is configured, so guests play without limits until Google or
-              Facebook is set up under Sign-in providers above.
+              <b>Not enforced yet.</b> Sign-in isn't available yet, so guests play without limits until it is set
+              up under Sign-in providers above.
             </div>
           )}
           <div className="mb-3 mt-1 text-xs text-white/40">
@@ -189,11 +187,14 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
               checked={!settings.liveVideo}
               onChange={v => save({ liveVideo: !v })}
             />
-            {settings.maskyAvailable && (
             <div>
               <div className="text-white/70">Video provider</div>
-              <div className="mt-1 grid grid-cols-2 overflow-hidden rounded border border-white/15">
-                {VIDEO_PROVIDERS.map(provider => (
+              {/* Only providers with an API key on this server; the order is the order of preference. */}
+              <div
+                className="mt-1 grid overflow-hidden rounded border border-white/15"
+                style={{ gridTemplateColumns: `repeat(${(settings.availableProviders ?? VIDEO_PROVIDERS).length}, minmax(0, 1fr))` }}
+              >
+                {(settings.availableProviders ?? VIDEO_PROVIDERS).map(provider => (
                   <button
                     key={provider}
                     onClick={() => save({ videoProvider: provider })}
@@ -207,7 +208,6 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
               </div>
               <p className="mt-1 text-xs text-white/40">{PROVIDER_HELP[settings.videoProvider]}</p>
             </div>
-            )}
             {settings.maskyAvailable && settings.videoProvider === "masky" && (
               <Toggle label="Masky draft quality (cheaper)" checked={settings.maskyDraft} onChange={v => save({ maskyDraft: v })} />
             )}
@@ -241,6 +241,7 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
             />
           </div>
           </fieldset>
+          )}
 
           {lastDebug && (
             <div className="mt-4 space-y-1 border-t border-white/10 pt-3 text-xs text-white/60">

@@ -4,27 +4,51 @@
 
 - **Bun** 1.3+: https://bun.sh
 - **ffmpeg** on your PATH (extracts last frames, downscales reference images, builds the music loop)
-- API keys for **MachGen** (video, images, music), **GMI Cloud** (LLM), and optionally **ElevenLabs**
+- API keys: **at least one video provider** (fal, MachGen or GMI Cloud) and **GMI Cloud** for the LLM calls. Everything
+  else is optional. The full list is in the table below.
 
-## 2. Create `keys.json`
+## 2. Keys: `keys.json` locally, environment variables in deployment
 
-Create `keys.json` in the project root. It is gitignored: **never commit it**.
+Create `keys.json` in the project root. It is gitignored: **never commit it**. Environment variables override it, which is
+how the deployment gets them. R2 credentials are the exception: they only come from environment variables, so locally
+they go in a `.env` file (also gitignored; Bun loads it automatically).
 
 ```json
 {
+  "fal": "<fal.ai API key>",
   "machgen": "MGA_<key_id>:<secret>",
   "gmi": "<GMI Cloud API key (JWT starting with eyJ...)>",
-  "elevenlabs": "sk_<ElevenLabs API key>"
+  "googleClientId": "<id>.apps.googleusercontent.com",
+  "googleClientSecret": "GOCSPX-...",
+  "cfAnalyticsToken": "<Cloudflare Web Analytics token>",
+  "elevenlabs": "sk_<optional>",
+  "masky": "<optional>"
 }
 ```
 
-| Key | Where to get it | Used for |
-|---|---|---|
-| `machgen` | machgen.ai → Profile → API Keys | MiniMax-H3 video clips, Nano Banana Pro images, Eleven-Music-v2 music |
-| `gmi` | console.gmicloud.ai → API Keys | Gemini Flash LLM calls (diagnostic + shot writer) |
-| `elevenlabs` | elevenlabs.io → Developers → API Keys | Optional: direct music generation (needs a paid plan) |
+**Every key the project uses:**
 
-All three keys must be present, because the server imports `keys.json` at startup. Use a placeholder string for any key you don't have.
+| keys.json | Environment variable | Needed? | Where to get it | Used for |
+|---|---|---|---|---|
+| `fal` | `FAL_KEY` (or `FAL_API_KEY`) | one video provider | fal.ai → Dashboard → Keys | Step clips: MiniMax H3 Max 480P (**preferred provider**) |
+| `falAdmin` | `FAL_ADMIN_KEY` | optional | fal.ai → Dashboard → Keys → new key with **Admin** scope | Reads the fal credit balance (admin credits card, $10 auto-pause for fal). A normal fal key can't |
+| `machgen` | `MACHGEN_API_KEY` | one video provider | machgen.ai → Profile → API Keys | Step clips: H3 480p (2nd choice); `gen-image-machgen.ts`, `gen-music.ts` |
+| `gmi` | `GMI_API_KEY` | **yes** | console.gmicloud.ai → API Keys | LLM calls (diagnostic, shot writer, archive match); H3 768P (3rd choice); `gen-image-gmi.ts`, `gen-intro.ts` |
+| `googleClientId` / `googleClientSecret` | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | for Google sign-in | console.cloud.google.com → APIs & Services → Credentials → OAuth client ID (Web) | "Continue with Google" |
+| `cfAnalyticsToken` | `CF_ANALYTICS_TOKEN` | optional | dash.cloudflare.com → Analytics & Logs → Web Analytics | Visitor analytics beacon |
+| — | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | deployment: **yes**; local: for GMI refs / archive restore | dash.cloudflare.com → R2 → Manage API Tokens (**Object Read & Write**, bucket `slop-prison-media`) | Generated media, archive backups |
+| — | `ADMIN_PASSWORD` | deployment: **yes** | you choose | Unlocks the admin panel (falls back to a public default when unset) |
+| — | `AUTH_SECRET` | deployment: **yes** | `openssl rand -base64 32` | Signs sessions and guest cookies |
+| `elevenlabs` | `ELEVENLABS_API_KEY` | optional | elevenlabs.io → Developers → API Keys | Direct music generation (paid plan) |
+| `masky` | `MASKY_API_KEY` | optional | masky.ai | Masky video provider (off in deployment) |
+
+**Video provider preference:** the default is the first provider with a key: **fal → MachGen → GMI**. The admin panel
+only offers providers that have a key on that server.
+
+**Google sign-in:** add both redirect URIs to the OAuth client in the Google console:
+`https://prison-escape-production.up.railway.app/api/auth/callback/google` and `http://localhost:3000/api/auth/callback/google`.
+Email + password sign-up is always on (Better Auth, passwords hashed). There is no email service yet, so addresses are not
+verified and there is no password-reset email.
 
 ## 3. Install and start
 
@@ -79,9 +103,13 @@ If you leave or reload the page while a step is generating, the start button sho
 
 | Command | Makes | Cost |
 |---|---|---|
-| `bun scripts/gen-image-machgen.ts <prompt.txt>...` | Nano Banana Pro PNG next to each prompt (skips existing PNGs) | ~$0.079/image |
-| `bun scripts/gen-intro.ts intro keyframe\|video` | Looping 15s intro → `media/intro/intro.mp4` | ~$0.08 + ~$0.53 |
-| `bun scripts/gen-intro.ts sloppy-joe-thinking keyframe\|video` | Silent 4s "Sloppy Joe thinking" idle loop | ~$0.08 + ~$0.14 |
+| `bun scripts/gen-image-gmi.ts [--ref img.png ...] <prompt.txt>...` | Nano Banana Pro (`gemini-3-pro-image`) PNG next to each prompt on GMI, optional reference images (skips existing PNGs) | ~$0.134/image |
+| `bun scripts/gen-image-machgen.ts <prompt.txt>...` | Same on MachGen (kept as a fallback) | ~$0.079/image |
+| `bun scripts/gen-intro.ts intro keyframe\|video` | Looping 15s intro → `media/intro/intro.mp4` (GMI, 768P) | ~$0.13 + $1.20 |
+| `bun scripts/gen-intro.ts sloppy-joe-thinking keyframe\|video` | Silent 4s "Sloppy Joe thinking" idle loop (GMI, 768P) | ~$0.13 + $0.32 |
+
+GMI takes reference images as **public URLs only**, so the GMI scripts publish them to R2 first: fill in the `R2_*`
+variables in `.env` on the machine you run them from.
 | `bun scripts/gen-music.ts` | 30s seamless music loop → `media/music/loop.mp3` | ~$0.20 |
 
 ## 8. Downloads, credits and admin
@@ -94,9 +122,34 @@ If you leave or reload the page while a step is generating, the start button sho
 - **Rewatch:** the outcome screens and the idle HUD have a rewatch control that replays the last clip and then re-runs the YOU FAILED / ESCAPED graphics with their normal timing.
 - **Credits:** in the admin panel, enter the admin password (`hackathon`; only its SHA-256 hash is stored in `src/server/credits.ts`) to see:
   - **MachGen**: live balance from MachGen's billing API.
-  - **GMI Cloud**: an **estimate**, because GMI's balance API only works with a console login: `GMI_BALANCE_BASELINE` (update it from the GMI console) minus the LLM spend logged since then.
-- **Auto-pause:** when MachGen drops below **$10**, steps run without generating video and a small red banner tells players to notify the administrator.
-- **Debug history** is scoped to your browser session: each tab session gets a new UUID, and ☰ only shows that session's steps.
+  - **GMI Cloud**: an **estimate**, because GMI's balance API only works with a console login: `GMI_BALANCE_BASELINE` (update it from the GMI console) minus the video spend (durable `gmi_spend` ledger, never pruned) and the LLM spend logged since then.
+  - **Players**: unique players, directions, paid generations per player and archive reuse rate, with a full report (per day, distribution, top players) one click away. A player is a signed-in account, else the one-year guest cookie; steps from before attribution existed only know their browser tab, so those over-count people.
+- **Auto-pause:** when the active video provider drops below **$10** (MachGen: live balance; GMI: the estimate above), steps run without generating video and a small red banner tells players to notify the administrator.
+
+## Video provider
+
+**fal.ai H3 Max is the default** (admin panel → *Video provider*). Measured on one 15s reference-to-video step:
+
+| Provider | Model | Resolution | 15s step | Submit → saved |
+|---|---|---|---|---|
+| **fal** (default) | MiniMax H3 **Max** | 480P | $0.75 (+~$0.02 refs) | **9.2s** |
+| MachGen | MiniMax H3 | 480p | $0.75 R2V / $0.525 I2V | 13-30s |
+| GMI Cloud | MiniMax H3 | 768P minimum | $1.20 | ~274s |
+
+- **fal** sends reference images inline (1024px JPEG data URIs, built once per server run), so nothing is uploaded first.
+  They are kept at 1024px because fal bills references above 4,096 tokens; nine 1600px sheets would add ~$0.17 a step.
+  Prompt expansion is disabled. fal has no balance API, so the $10 auto-pause does not apply to it: watch the fal
+  dashboard. Key: `fal` in `keys.json`, or `FAL_KEY` / `FAL_API_KEY`.
+- **The clip plays before it is stored.** fal returns its CDN link the moment the clip is ready and the player starts
+  watching it; the download, the copy to R2, the last-frame extraction and the archive entry happen in the
+  background. The next step, per-step idle loops and film exports wait for that to finish, which it almost always
+  has by then (it takes ~2-4s and the clip is 15s long). If it fails, the CDN link keeps playing and the step is just
+  not archived.
+- **GMI** (768P only, no H3 Max, no 480p) and **MachGen** stay selectable. GMI fetches references by URL, so they go to
+  R2 once (`refs/…`) and are passed as signed URLs.
+
+**Step speed-ups:** LLM 1 now starts at the same time as the archive lookup instead of after it (a hit discards it,
+~$0.0005 wasted), and the Gemma archive match gives up after 4s and counts as a miss.
 
 ## 9. Action archive (clip reuse)
 
@@ -123,8 +176,15 @@ Lookup order, cheapest first:
    weak score means a genuinely new idea.
 4. **Miss?** Generate as normal and save it for the next viewer.
 
-**Archive size:** each location keeps its 30 most-reused clips per outcome; older unused rows are pruned on save. Rows
-only, the mp4 files stay in the clip cache.
+**Archive size:** each location keeps its 50 most-reused clips per outcome; older unused rows are pruned on save, and the
+pruned clip's video is deleted from R2 with it.
+
+**Backups:** the rows live in SQLite on the deploy volume, which survives redeploys but not the volume or service being
+deleted. So the deployment also writes the whole table to R2 as `backups/action_clips.json` (15s after any change, on
+boot, and daily, plus a dated `backups/action_clips-YYYY-MM-DD.json` per day). On boot, **an empty archive restores
+itself from that backup** — a fresh volume, or a laptop with the R2 variables in `.env`, starts from production's
+library. Only the deployment writes backups (`ARCHIVE_BACKUP=0` opts it out; `ARCHIVE_BACKUP=1` opts another host in), so
+a local experiment can never overwrite production's copy.
 
 **Admin:** *Reuse archived actions* turns the whole thing off. *Display whether video is freshly generated or cached*
 (off by default) shows a **CACHED** or **GENERATED** badge in the top-left while a step plays. The credits section shows
@@ -137,12 +197,20 @@ The app needs a long-running server, ffmpeg and a disk, so it deploys as a Docke
 1. **Commit and push** everything, including `Dockerfile`, `.dockerignore` and `railway.json`. Generated assets in `common-generated-assets/` and `media/intro`, `media/music` must be committed.
 2. On **railway.com**: *New Project → Deploy from GitHub repo* → pick this repo. Railway builds the `Dockerfile` automatically.
 3. **Add a volume** to the service, mounted at **`/data`**. Generated clips, exports, settings and the debug DB are stored there (`STORAGE_DIR=/data` is set in the Dockerfile).
-4. **Variables** (Service → Variables):
-   | Variable | Value |
+4. **Variables** (Service → Variables). Every key from the table in section 2, as environment variables:
+   | Variable | Required |
    |---|---|
-   | `MACHGEN_API_KEY` | your MachGen key |
-   | `GMI_API_KEY` | your GMI key |
+   | `FAL_KEY` | yes (or `MACHGEN_API_KEY` / GMI as the video provider) |
+   | `MACHGEN_API_KEY` | fallback video provider |
+   | `GMI_API_KEY` | yes (LLM calls) |
+   | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET` | yes (media + archive backups) |
+   | `ADMIN_PASSWORD` | yes |
+   | `AUTH_SECRET` | yes |
+   | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | for Google sign-in |
+   | `CF_ANALYTICS_TOKEN` | for analytics |
    | `ELEVENLABS_API_KEY` | optional |
+
+   Changing a variable with the CLI redeploys unless you pass `--skip-deploys`.
 5. **Networking → Generate Domain** to get a public URL. Railway sets `PORT` for you.
 6. Open the site, then in the admin panel decide whether to turn off **No video generation**. Settings live on the volume, so changing a default in `config.ts` does not move an instance that already has a settings file — `PUT /api/settings` or the admin panel does.
 

@@ -56,12 +56,12 @@ type Target = { id: string; label: string; color: string; hint?: string };
 
 /** Link shares: each opens that platform's composer with our share page. No API keys. */
 const LINK_TARGETS: (Target & { href: (i: Info) => string })[] = [
-  { id: "x", label: "X", color: "#000", href: i => `https://x.com/intent/tweet?text=${encodeURIComponent(i.text)}&url=${encodeURIComponent(i.pageUrl)}` },
-  { id: "facebook", label: "Facebook", color: "#1877F2", href: i => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(i.pageUrl)}` },
-  { id: "linkedin", label: "LinkedIn", color: "#0A66C2", href: i => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(i.pageUrl)}` },
-  { id: "reddit", label: "Reddit", color: "#FF4500", href: i => `https://www.reddit.com/submit?url=${encodeURIComponent(i.pageUrl)}&title=${encodeURIComponent(i.title)}` },
-  { id: "whatsapp", label: "WhatsApp", color: "#25D366", href: i => `https://wa.me/?text=${encodeURIComponent(`${i.text} ${i.pageUrl}`)}` },
-  { id: "telegram", label: "Telegram", color: "#229ED9", href: i => `https://t.me/share/url?url=${encodeURIComponent(i.pageUrl)}&text=${encodeURIComponent(i.text)}` },
+  { id: "x", label: "X", color: "#000", href: i => `https://x.com/intent/tweet?text=${encodeURIComponent(i.text)}&url=${encodeURIComponent(i.pageUrl ?? "")}` },
+  { id: "facebook", label: "Facebook", color: "#1877F2", href: i => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(i.pageUrl ?? "")}` },
+  { id: "linkedin", label: "LinkedIn", color: "#0A66C2", href: i => `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(i.pageUrl ?? "")}` },
+  { id: "reddit", label: "Reddit", color: "#FF4500", href: i => `https://www.reddit.com/submit?url=${encodeURIComponent(i.pageUrl ?? "")}&title=${encodeURIComponent(i.title)}` },
+  { id: "whatsapp", label: "WhatsApp", color: "#25D366", href: i => `https://wa.me/?text=${encodeURIComponent(`${i.text} ${i.pageUrl ?? ""}`)}` },
+  { id: "telegram", label: "Telegram", color: "#229ED9", href: i => `https://t.me/share/url?url=${encodeURIComponent(i.pageUrl ?? "")}&text=${encodeURIComponent(i.text)}` },
 ];
 
 /** No keyless web share exists for these: save the cut they want, then open their upload page. */

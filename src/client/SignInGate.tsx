@@ -7,6 +7,8 @@ export type Me = {
   image: string | null;
   authEnabled: boolean;
   providers: string[];
+  /** Email + password sign-up and sign-in are available. */
+  emailPassword?: boolean;
   policy: string;
   used: { generations: number; games: number };
   canGenerate: boolean;
@@ -15,13 +17,12 @@ export type Me = {
 
 export const fetchMe = () => apiFetch("/api/me").then(r => r.json() as Promise<Me>);
 
-const PROVIDER_LABELS: Record<string, string> = { google: "Google", facebook: "Facebook", apple: "Apple" };
+const PROVIDER_LABELS: Record<string, string> = { google: "Google", apple: "Apple" };
 
 /** Brand marks kept simple enough to read at 18px, matching the share icons' approach. */
 const PROVIDER_MARKS: Record<string, string> = {
   google:
     "M21.35 11.1h-9.17v2.92h5.27c-.23 1.37-1.66 4.02-5.27 4.02-3.17 0-5.76-2.63-5.76-5.87s2.59-5.87 5.76-5.87c1.8 0 3.01.77 3.7 1.43l2.52-2.43C16.78 3.8 14.68 2.9 12.18 2.9 6.95 2.9 2.7 7.15 2.7 12.38s4.25 9.48 9.48 9.48c5.47 0 9.1-3.85 9.1-9.27 0-.62-.07-1.1-.16-1.49z",
-  facebook: "M13.5 21v-7h2.4l.4-3h-2.8V9.1c0-.9.3-1.5 1.6-1.5h1.3V5c-.3 0-1.2-.1-2.3-.1-2.3 0-3.9 1.4-3.9 4V11H7.7v3h2.5v7h3.3z",
   apple:
     "M16.4 12.8c0-2.2 1.8-3.3 1.9-3.4-1-1.5-2.6-1.7-3.2-1.7-1.4-.1-2.7.8-3.4.8-.7 0-1.8-.8-2.9-.8-1.5 0-2.9.9-3.7 2.2-1.6 2.7-.4 6.8 1.1 9 .7 1.1 1.6 2.3 2.7 2.2 1.1 0 1.5-.7 2.8-.7s1.7.7 2.9.7c1.2 0 1.9-1.1 2.6-2.2.8-1.2 1.2-2.5 1.2-2.5s-2-.8-2-3.6zM14.3 6.3c.6-.7 1-1.7.9-2.7-.9 0-2 .6-2.6 1.3-.6.6-1.1 1.7-.9 2.6 1 .1 2-.5 2.6-1.2z",
 };
@@ -67,7 +68,7 @@ export function SignInGate({ me, onDismiss }: { me: Me; onDismiss?: () => void }
           Your escape so far is saved. Signing in keeps it, and lets you start a new one.
         </p>
 
-        {me.authEnabled && me.providers.length > 0 ? (
+        {me.authEnabled && (me.providers.length > 0 || me.emailPassword) ? (
           <div className="mt-5 flex flex-col gap-2">
             {me.providers.map(p => (
               <button
@@ -82,6 +83,18 @@ export function SignInGate({ me, onDismiss }: { me: Me; onDismiss?: () => void }
                 {busy === p ? "Redirecting…" : `Continue with ${PROVIDER_LABELS[p] ?? p}`}
               </button>
             ))}
+            {me.emailPassword && (
+              <>
+                {me.providers.length > 0 && (
+                  <div className="my-1 flex items-center gap-3 font-mono text-[10px] tracking-widest text-white/30">
+                    <span className="h-px flex-1 bg-white/10" />
+                    OR
+                    <span className="h-px flex-1 bg-white/10" />
+                  </div>
+                )}
+                <EmailForm disabled={Boolean(busy)} onError={setError} />
+              </>
+            )}
             {error && <div className="rounded border border-siren-red/40 bg-siren-red/10 p-2 text-xs text-siren-red">{error}</div>}
           </div>
         ) : (
@@ -99,6 +112,75 @@ export function SignInGate({ me, onDismiss }: { me: Me; onDismiss?: () => void }
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Username, email and password, via Better Auth's /sign-up/email and /sign-in/email endpoints. Both set the
+ * session cookie on success (sign-up signs in straight away), so a reload is all the client has to do afterwards.
+ *
+ * The username is Better Auth's `name` field: display only, not unique, so two players can share one. Sign-in is
+ * by email. Emails are not verified yet (no mail service), only checked for a plausible shape by Better Auth.
+ */
+function EmailForm({ disabled, onError }: { disabled: boolean; onError: (message: string) => void }) {
+  const [mode, setMode] = useState<"sign-in" | "sign-up">("sign-up");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    onError("");
+    try {
+      const body = mode === "sign-up" ? { name: name.trim(), email: email.trim(), password } : { email: email.trim(), password };
+      const res = await fetch(`/api/auth/${mode}/email`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const out = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(out.message ?? out.error ?? `Couldn't ${mode === "sign-up" ? "create your account" : "sign you in"} (HTTP ${res.status})`);
+      location.reload();
+    } catch (err) {
+      setBusy(false);
+      onError((err as Error).message);
+    }
+  };
+
+  const field = "w-full rounded-md border border-white/15 bg-white/5 px-3 py-2 font-mono text-sm text-white placeholder:text-white/30 focus:border-sodium focus:outline-none";
+  return (
+    <form onSubmit={submit} className="flex flex-col gap-2 text-left">
+      {mode === "sign-up" && (
+        <input required value={name} onChange={e => setName(e.target.value)} placeholder="Username" autoComplete="username" className={field} />
+      )}
+      <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" autoComplete="email" className={field} />
+      <input
+        type="password"
+        required
+        minLength={8}
+        value={password}
+        onChange={e => setPassword(e.target.value)}
+        placeholder={mode === "sign-up" ? "Password (8+ characters)" : "Password"}
+        autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
+        className={field}
+      />
+      <button
+        type="submit"
+        disabled={disabled || busy}
+        className="rounded-md border border-sodium/60 bg-sodium/10 px-4 py-3 font-semibold text-sodium transition hover:bg-sodium hover:text-black disabled:opacity-50"
+      >
+        {busy ? "…" : mode === "sign-up" ? "Create account" : "Sign in"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setMode(m => (m === "sign-up" ? "sign-in" : "sign-up"))}
+        className="text-center font-mono text-[11px] text-white/40 underline underline-offset-4 hover:text-white/70"
+      >
+        {mode === "sign-up" ? "Already have an account? Sign in" : "New here? Create an account"}
+      </button>
+    </form>
   );
 }
 

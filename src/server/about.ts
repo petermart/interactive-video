@@ -7,6 +7,8 @@ import { beaconTag } from "./analytics";
 
 export const REPO_URL = "https://github.com/petermart/interactive-video";
 const MASTER_PLAN_URL = `${REPO_URL}/blob/main/master-plan.md`;
+const LINKEDIN_URL = "https://www.linkedin.com/in/peter-martin-297bba148/";
+const X_URL = "https://x.com/JustPeterMartin";
 
 /** The pipeline behind one typed action, which is the part of the master plan worth summarising. */
 const STEPS: [string, string][] = [
@@ -95,6 +97,17 @@ export function aboutPage() {
     <a class="btn primary" href="${MASTER_PLAN_URL}">READ THE MASTER PLAN</a>
     <a class="btn" href="${REPO_URL}">SOURCE ON GITHUB</a>
     <a class="btn" href="/">PLAY</a>
+  </div>
+
+  <h2>Made by</h2>
+  <p>
+    <strong>Peter Martin</strong> is an AI software engineer specializing in video and 3D. He's currently at Adobe,
+    building authoring tools for creators. With a background in short films, VFX and immersive media, he's drawn to
+    cutting-edge tech that puts new tools in creators' hands.
+  </p>
+  <div class="links">
+    <a class="btn" href="${X_URL}">X</a>
+    <a class="btn" href="${LINKEDIN_URL}">LINKEDIN</a>
   </div>
 
   <footer>Escape from Slop Prison · built at Yes SF, San Francisco</footer>

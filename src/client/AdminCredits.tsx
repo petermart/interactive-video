@@ -1,9 +1,22 @@
 import { useEffect, useState } from "react";
+import { AdminUsage } from "./AdminUsage";
 import { apiFetch } from "./viewer";
 
 type Report = {
+  fal: { balanceUsd: number | null; currency?: string; configured: boolean; error?: string; minBalanceUsd: number; generationPaused: boolean };
   machgen: { balanceUsd: number | null; minBalanceUsd: number; generationPaused: boolean; pendingTasks: number; runningTasks: number; error?: string };
-  gmi: { estimatedUsd: number; baselineUsd: number; baselineAt: string; spentSinceBaselineUsd: number; costedCalls: number };
+  gmi: {
+    estimatedUsd: number;
+    baselineUsd: number;
+    baselineAt: string;
+    spentSinceBaselineUsd: number;
+    llmSpentUsd: number;
+    videoSpentUsd: number;
+    videoClips: number;
+    costedCalls: number;
+    minBalanceUsd: number;
+    generationPaused: boolean;
+  };
   library: { clips: number; reuses: number; saved_usd: number | null } | null;
   /** The admin password is still the public fallback from the open-source repo. */
   publicDefaultPassword: boolean;
@@ -113,7 +126,7 @@ export function AdminCredits() {
     );
   }
 
-  const { machgen, gmi, storage } = report;
+  const { machgen, gmi, storage, fal } = report;
   // Fills toward the cap, then turns red once uploads are being refused.
   const barColor = storage.overCap ? "bg-siren-red" : storage.percentOfCap > 75 ? "bg-sodium" : "bg-teal";
   return (
@@ -129,6 +142,22 @@ export function AdminCredits() {
         <button onClick={() => load()} className="text-xs text-teal hover:underline">
           {loading ? "refreshing…" : "refresh"}
         </button>
+      </div>
+      <div className="rounded border border-white/10 p-2">
+        <div className="flex justify-between">
+          <span>fal.ai (video)</span>
+          <b className={fal.generationPaused ? "text-siren-red" : fal.balanceUsd === null ? "text-white/40" : "text-[#3dff7a]"}>
+            {fal.balanceUsd === null ? (fal.configured ? "unknown" : "—") : `$${fal.balanceUsd.toFixed(2)}`}
+          </b>
+        </div>
+        <div className="text-xs text-white/40">
+          {!fal.configured
+            ? "Add an Admin-scope fal key (falAdmin / FAL_ADMIN_KEY) to see the balance; a normal key can't read it."
+            : fal.generationPaused
+              ? `Below $${fal.minBalanceUsd}: video generation paused`
+              : `Auto-pauses video below $${fal.minBalanceUsd}`}
+          {fal.error && ` · ${fal.error}`}
+        </div>
       </div>
       <div className="rounded border border-white/10 p-2">
         <div className="flex justify-between">
@@ -182,6 +211,7 @@ export function AdminCredits() {
           </div>
         )}
       </div>
+      <AdminUsage password={password} />
       {report.library && (
         <div className="rounded border border-white/10 p-2">
           <div className="flex justify-between">
@@ -195,12 +225,14 @@ export function AdminCredits() {
       )}
       <div className="rounded border border-white/10 p-2">
         <div className="flex justify-between">
-          <span>GMI Cloud (LLM)</span>
-          <b className="text-sodium">≈ ${gmi.estimatedUsd.toFixed(2)}</b>
+          <span>GMI Cloud (video + LLM)</span>
+          <b className={gmi.generationPaused ? "text-siren-red" : "text-sodium"}>≈ ${gmi.estimatedUsd.toFixed(2)}</b>
         </div>
         <div className="text-xs text-white/40">
-          Estimate: ${gmi.baselineUsd.toFixed(2)} console balance − ${gmi.spentSinceBaselineUsd.toFixed(4)} logged across {gmi.costedCalls}{" "}
-          calls (GMI's balance API needs a console login)
+          Estimate: ${gmi.baselineUsd.toFixed(2)} console balance − ${gmi.videoSpentUsd.toFixed(2)} video ({gmi.videoClips} clips) − $
+          {gmi.llmSpentUsd.toFixed(3)} LLM ({gmi.costedCalls} calls). GMI's balance API needs a console login, so update the
+          baseline in credits.ts when you check it.
+          {gmi.generationPaused && ` Below $${gmi.minBalanceUsd}: GMI video generation paused.`}
         </div>
       </div>
     </div>

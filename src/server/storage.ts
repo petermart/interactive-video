@@ -225,6 +225,23 @@ export async function releaseLocalCopy(localPath: string, mediaUrl: string) {
   return true;
 }
 
+/**
+ * Writes a small bookkeeping object such as a database backup. Deliberately outside the media cap and ledger:
+ * a full media budget refusing the backup would defeat the point of having one.
+ */
+export async function putSmall(key: string, text: string) {
+  if (!client) return false;
+  await client.write(key, text, { type: "application/json" });
+  return true;
+}
+
+/** Reads a small object as text, or null when R2 is off or the object does not exist. */
+export async function readText(key: string) {
+  if (!client) return null;
+  const file = client.file(key);
+  return (await file.exists()) ? file.text() : null;
+}
+
 export async function deleteObject(key: string) {
   if (!client) return;
   // A clip whose row is being pruned may already be gone; that is not an error worth surfacing.

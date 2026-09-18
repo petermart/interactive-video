@@ -14,7 +14,9 @@
  * than a person.
  */
 
-const TOKEN = process.env.CF_ANALYTICS_TOKEN ?? "";
+import { keys } from "./config";
+
+const TOKEN = keys.cfAnalyticsToken;
 
 export const analyticsEnabled = () => Boolean(TOKEN);
 export const analyticsToken = () => TOKEN || null;

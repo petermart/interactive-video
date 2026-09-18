@@ -5,7 +5,7 @@ Live interactive AI film built at the Multimodal Society AI Filmmaking Hackathon
 
 The viewer watches a prisoner try to escape. After every clip the camera settles on the protagonist's face and asks
 **"What should the protagonist do next?"** The viewer types an action. Two LLM calls judge it and write the next shot,
-and MiniMax H3 generates it in roughly 7 seconds. A good idea gets you closer to the exit. A bad roll gets you re-detained or killed.
+and MiniMax H3 Max (on fal.ai) generates it in roughly 7 seconds. A good idea gets you closer to the exit. A bad roll gets you re-detained or killed.
 
 ---
 
@@ -14,13 +14,14 @@ and MiniMax H3 generates it in roughly 7 seconds. A good idea gets you closer to
 | Piece | Provider | Notes |
 |---|---|---|
 | Web app | Bun (`bun run dev`) | `server.ts` + static `public/`. No framework. |
-| Video | **MachGen** `MiniMax-H3` | 480p ≈ $0.035/sec. Step clip **15s ≈ $0.53**, idle loop 4s ≈ $0.14. A 4s test took ~4s to generate + ~3s queue (15s not yet timed). $100 credits. |
-| LLM | **GMI Cloud** `google/gemini-3.8-flash` | OpenAI-compatible, `https://api.gmi-serving.com/v1`. ~$0.001/call. |
+| Video | **fal.ai** `minimax/h3-max` (default) | MiniMax H3 **Max** at 480P, $0.05/sec: a 15s step clip is **$0.75**. Measured on a 15s reference-to-video step: **9.2s** from submit to saved file (1.1s queue, 6.3s generating). The clip starts playing from fal's CDN as soon as it is ready. Prompt expansion disabled. |
+| Video (fallbacks) | **MachGen** `MiniMax-H3`, then **GMI Cloud** `MiniMax-H3` | Default provider is the first with a key: fal → MachGen → GMI. MachGen: H3 480p, $0.75 R2V / $0.525 I2V per 15s, 13-30s. GMI: 768P minimum (no 480p, no H3 Max), $1.20 per 15s, ~4.5 min. |
+| LLM | **GMI Cloud** `google/gemini-3.5-flash-lite` | OpenAI-compatible, `https://api.gmi-serving.com/v1`. ~$0.001/call, ~2s. Archive matching uses `google/gemma-4-26b-a4b-it`. |
 | Character/environment art | **GMI Cloud** `gemini-3-pro-image` (Nano Banana Pro) | TODO: confirm whether a "Nano Banana 3 Pro" ID exists. Request-queue API. |
 | Motion graphics | **HyperFrames** (HeyGen) | Kept as live HTML5 + GSAP overlays, not rendered MP4s. See `hyperframes/`. |
 | Music | TODO (ElevenLabs Music, or MachGen `Eleven-Music-v2`) | One seamless background loop. |
 
-Keys live in `keys.json` (gitignored): `machgen`, `gmi`.
+Keys live in `keys.json` (gitignored): `fal`, `machgen`, `gmi`, plus Google sign-in and analytics. The full list is in `testing yourself.md`.
 
 **Cost guard:** the admin panel has **Live LLM** and **Live Video** toggles. Both default to **off**. While off, the app uses
 mock LLM responses and the placeholder clip, so UI work spends nothing.
@@ -52,7 +53,7 @@ mock LLM responses and the placeholder clip, so UI work spends nothing.
 ### Idle loop (no freeze frames)
 Instead of pausing on the clip's last frame, every successful clip is followed by a second H3 generation:
 - LLM 2 is told the clip must **end on a close-up of the protagonist's face**.
-- The server pulls the last frame (ffmpeg), uploads it to MachGen, and runs `I2V` with that same image as both the first
+- The server pulls the last frame (ffmpeg), sends it to the video provider, and runs `I2V` with that same image as both the first
   and last frame (`keyframe_indices: [0, -1]`). The result loops seamlessly.
 - Prompt: breathing, blinking, eyes darting, flickering practical light, near-static camera.
 - The browser plays it with `loop`.
@@ -70,8 +71,8 @@ That makes each successful step **15s clip + 4s loop ≈ $0.67**, and a failure 
 | **Creativity points (±)** | 0, 5, 10, 15, 20, 25, 30, 40, 50 | Max points creativity adds (brilliant idea) or removes (lazy idea) from the chance (hybrid and dice only). |
 | **Prompts till success** | 1–20 | Rough number of successful steps before the exit is reachable. Not exact. |
 | Live LLM | on/off | Off = mock diagnostic/writer responses. |
-| **No video generation** | on/off (default on) | Text-only testing: after the LLM calls, the scene summary and shot list show for 15s in place of the clip, then the outcome plays (YOU FAILED overlay, escape, or back to the prompt). Turn off to spend MachGen credits on real clips. |
-| LLM model | text | Default `google/gemini-3.8-flash`. |
+| **No video generation** | on/off (default on) | Text-only testing: after the LLM calls, the scene summary and shot list show for 15s in place of the clip, then the outcome plays (YOU FAILED overlay, escape, or back to the prompt). Turn off to spend video-provider credits on real clips. |
+| LLM model | dropdown | Default `google/gemini-3.5-flash-lite` for both the analysis and the shot writer. |
 
 The panel also shows the last diagnosis (innovation score, computed chance, roll) for tuning.
 

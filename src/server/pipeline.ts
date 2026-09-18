@@ -1,10 +1,14 @@
 import { clamp, getSettings, introMedia, ROOT, world, type OutcomeMode, type Settings } from "./config";
 import { findByIntent, findReusableClip, markClipUsed, rememberClip, type CachedClip } from "./actionCache";
-import { MACHGEN_MIN_BALANCE_USD, videoGenerationAllowed } from "./credits";
+import type { VideoProvider } from "./constants";
+import { MIN_BALANCE_USD, videoGenerationAllowed } from "./credits";
 import { jobContext, loadJob, loadNode, logEvent, saveJob, saveNode } from "./db";
 import { chatJSON } from "./gmi";
 import { existsSync } from "node:fs";
-import { generateVideo, hasAsset, lastFrame, MAX_IMAGE_REFS, uploadAsset, uploadFile, type VideoRequest } from "./machgen";
+import * as falVideo from "./falVideo";
+import * as gmiVideo from "./gmiVideo";
+import * as machgen from "./machgen";
+import { hasAsset, lastFrame, MAX_IMAGE_REFS, type VideoRequest } from "./machgen";
 import { releaseLocalCopy } from "./storage";
 import { generateMaskyVideo } from "./masky";
 import { diagnosticSystem, writerSystem } from "./prompts";
@@ -177,8 +181,20 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     storySoFar: story,
   });
 
-  // Archive first: a move already filmed in this location replays with its stored verdict, destination and clip,
-  // so neither LLM call nor a generation is needed. Wording/Gemma only, since the intent key needs LLM 1.
+  // LLM 1 (diagnostic) starts straight away, alongside the archive lookup rather than after it: on a miss
+  // (most fresh actions) that saves the whole lookup, up to ~2.6s. On a hit the diagnosis is simply discarded,
+  // which wastes one flash-lite call (~$0.0005) in exchange for never making a miss wait.
+  const diagnosing: Promise<Diagnosis> = settings.liveLLM
+    ? chatJSON<Diagnosis>(settings.analysisModel, diagnosticSystem(settings), context, "LLM 1 diagnostic")
+    : Promise.resolve().then(() => {
+        const mock = mockDiagnosis(direction, settings);
+        logEvent({ kind: "llm", label: "LLM 1 diagnostic · mock", request: context, response: mock });
+        return mock;
+      });
+  diagnosing.catch(() => {}); // a hit never awaits it; don't let its failure surface as unhandled
+
+  // Archive: a move already filmed in this location replays with its stored verdict, destination and clip,
+  // so neither the shot writer nor a generation is needed. Wording/Gemma only, since the intent key needs LLM 1.
   if (settings.reuseActions) {
     const known = await findReusableClip({
       environmentId: from.environmentId,
@@ -186,17 +202,13 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
       model: settings.matchModel,
       liveLLM: settings.liveLLM,
     });
-    if (known && replayArchived(job, from, direction, known)) return;
+    if (known && replayArchived(job, from, direction, known)) {
+      logEvent({ kind: "job", label: "parallel LLM 1 discarded (archive hit)" });
+      return;
+    }
   }
 
-  // LLM 1: diagnostic
-  let diagnosis: Diagnosis;
-  if (settings.liveLLM) {
-    diagnosis = await chatJSON<Diagnosis>(settings.analysisModel, diagnosticSystem(settings), context, "LLM 1 diagnostic");
-  } else {
-    diagnosis = mockDiagnosis(direction, settings);
-    logEvent({ kind: "llm", label: "LLM 1 diagnostic · mock", request: context, response: diagnosis });
-  }
+  const diagnosis = await diagnosing;
   if (!diagnosis.allowed) {
     const reason = diagnosis.rejectionReason || "That can't happen here. Try something else.";
     if (settings.reuseActions) {
@@ -258,13 +270,14 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   job.debug.plan = plan;
 
   // H3 clip
-  // Credit guard: below the MachGen minimum, run this step without generating video (text scene instead).
+  // Credit guard: below the provider's minimum, run this step without generating video (text scene instead).
   let makeVideo = settings.liveVideo;
-  if (makeVideo && !(await videoGenerationAllowed())) {
+  if (makeVideo && !(await videoGenerationAllowed(settings.videoProvider))) {
     makeVideo = false;
     job.creditsExhausted = true;
-    logEvent({ kind: "error", label: `video skipped: MachGen balance below ${MACHGEN_MIN_BALANCE_USD}`, status: "error" });
+    logEvent({ kind: "error", label: `video skipped: ${settings.videoProvider} balance below $${MIN_BALANCE_USD}`, status: "error" });
   }
+  const api = videoApi(settings.videoProvider);
   if (makeVideo) setJob(job, "generating-clip", "Rolling camera…");
   const node: StoryNode = {
     id: crypto.randomUUID(),
@@ -281,6 +294,9 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   };
 
   if (makeVideo) {
+    // The previous step may still be storing its clip in the background, and its last frame is this clip's
+    // continuity reference. It has had the whole LLM round to finish, so this rarely waits.
+    await whenFinalized(from.id);
     const clip =
       settings.videoProvider === "masky"
         ? await generateMaskyVideo({
@@ -290,26 +306,48 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
             durationSecs: STEP_SECS,
             draft: settings.maskyDraft,
           })
-        : await generateVideo(await buildClipRequest(plan, from));
-    node.clipUrl = clip.url;
-    // ffmpeg needs the clip on disk; once its last frame is out, the local copy has served its purpose.
-    node.lastFrameFile = await lastFrame(clip.file);
-    await releaseLocalCopy(clip.file, clip.url);
-    if (settings.reuseActions) {
-      rememberClip({
-        environmentId: from.environmentId,
-        outcome,
-        direction,
-        intentKey: diagnosis.intentKey,
-        summary: plan.summary,
-        shotPrompt: plan.shotPrompt,
-        toEnvironmentId: node.environmentId,
-        failType: node.failType,
-        clipUrl: node.clipUrl,
-        lastFrameFile: node.lastFrameFile,
-        provider: settings.videoProvider,
-        costUsd: "creditCost" in clip ? (clip as { creditCost?: number }).creditCost : undefined,
-      });
+        : await api.generateVideo(await buildClipRequest(plan, from, api));
+    const costUsd = "creditCost" in clip ? (clip as { creditCost?: number }).creditCost : undefined;
+
+    /** Points the node at the stored clip, reads its last frame and archives it for reuse. */
+    const store = async (file: string, url: string) => {
+      node.clipUrl = url;
+      // ffmpeg needs the clip on disk; once its last frame is out, the local copy has served its purpose.
+      node.lastFrameFile = await lastFrame(file);
+      await releaseLocalCopy(file, url);
+      if (settings.reuseActions) {
+        rememberClip({
+          environmentId: from.environmentId,
+          outcome,
+          direction,
+          intentKey: diagnosis.intentKey,
+          summary: plan.summary,
+          shotPrompt: plan.shotPrompt,
+          toEnvironmentId: node.environmentId,
+          failType: node.failType,
+          clipUrl: url,
+          lastFrameFile: node.lastFrameFile,
+          provider: settings.videoProvider,
+          costUsd,
+        });
+      }
+    };
+
+    if ("finalize" in clip) {
+      // Play straight from the provider's CDN: the player starts watching now, while the download, the copy
+      // to R2, the last frame and the archive entry happen in the background (~2-4s saved per step).
+      node.clipUrl = clip.url;
+      const finalize = clip.finalize;
+      trackFinalize(
+        node,
+        (async () => {
+          const local = await finalize();
+          await store(local.file, local.url);
+          putNode(node); // persist the stable /media URL in place of the CDN link
+        })(),
+      );
+    } else {
+      await store(clip.file, clip.url);
     }
   }
 
@@ -318,6 +356,8 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   if (outcome === "success" && makeVideo && settings.constantThink) {
     logEvent({ kind: "job", label: "idle loop skipped (constant think)", response: { saved: "~$0.14 and ~9s" } });
   }
+  // A per-step idle loop opens on this clip's last frame, which a background finalize may still be producing.
+  if (outcome === "success" && makeVideo && !settings.constantThink) await whenFinalized(node.id);
   if (outcome === "success" && makeVideo && !settings.constantThink && node.lastFrameFile) {
     setJob(job, "generating-loop", "Finding his next move…");
     {
@@ -330,10 +370,10 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
               durationSecs: LOOP_SECS,
               draft: settings.maskyDraft,
             })
-          : await generateVideo({
+          : await api.generateVideo({
               task_type: "I2V",
               prompt: plan.loopPrompt,
-              src_image_urls: [await uploadFile(node.lastFrameFile), await uploadFile(node.lastFrameFile)],
+              src_image_urls: [await api.uploadFile(node.lastFrameFile), await api.uploadFile(node.lastFrameFile)],
               keyframe_indices: [0, -1],
               durationSecs: LOOP_SECS,
             });
@@ -426,7 +466,33 @@ function firstFrameFor(from: StoryNode) {
   return null;
 }
 
-export async function buildClipRequest(plan: ShotPlan, from: StoryNode): Promise<VideoRequest> {
+/**
+ * The H3 client for a provider. MachGen and GMI take the same request and differ only in how references
+ * are hosted (MachGen uploads, GMI fetches public URLs), which each module handles itself.
+ */
+export const videoApi = (provider: VideoProvider) => (provider === "fal" ? falVideo : provider === "gmi" ? gmiVideo : machgen);
+
+/**
+ * Clips handed to the player as a provider CDN link are stored afterwards. Anything that needs the stored
+ * copy — the next step's continuity frame, a per-step idle loop, a film export — waits on this first.
+ */
+const finalizing = new Map<string, Promise<void>>();
+
+function trackFinalize(node: StoryNode, work: Promise<void>) {
+  const tracked = work
+    .catch(err => {
+      // The CDN link keeps playing; the step just misses its stored copy, last frame and archive entry.
+      logEvent({ kind: "error", label: "clip finalize failed", status: "error", response: String((err as Error)?.stack ?? err) });
+    })
+    .finally(() => finalizing.delete(node.id));
+  finalizing.set(node.id, tracked);
+}
+
+/** Resolves once a node's clip has been stored (immediately when nothing is pending). */
+export const whenFinalized = (nodeId: string) => finalizing.get(nodeId) ?? Promise.resolve();
+
+export async function buildClipRequest(plan: ShotPlan, from: StoryNode, api: ReturnType<typeof videoApi> = machgen): Promise<VideoRequest> {
+  const { uploadAsset, uploadFile } = api;
   const previousFrame = from.lastFrameFile
     ? await uploadFile(from.lastFrameFile)
     : from.parentId === null && hasAsset(INTRO_LAST_FRAME)

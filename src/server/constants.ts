@@ -18,7 +18,7 @@ export const CREATIVITY_POINT_OPTIONS = [0, 5, 10, 15, 20, 25, 30, 40, 50] as co
  * - masky:   Masky videos ($0.025/s at 720p, $0.015 draft); no reference images, continuity comes from
  *            starting each clip on the previous clip's last frame.
  */
-export const VIDEO_PROVIDERS = ["machgen", "masky"] as const;
+export const VIDEO_PROVIDERS = ["fal", "machgen", "gmi", "masky"] as const;
 export type VideoProvider = (typeof VIDEO_PROVIDERS)[number];
 
 /** No-video mode: how long the scene text stays up in place of a step clip (matches the 15s clips). */

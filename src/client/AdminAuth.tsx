@@ -12,7 +12,7 @@ type Provider = {
 };
 type AuthReport = { providers: Provider[]; enabled: boolean; baseUrl: string; weakSecret: boolean };
 
-const LABELS: Record<string, string> = { google: "Google", facebook: "Facebook" };
+const LABELS: Record<string, string> = { google: "Google" };
 const CONSOLES: Record<string, string> = {
   google: "console.cloud.google.com → Credentials → OAuth client ID (Web)",
   facebook: "developers.facebook.com → your app → Facebook Login → Settings",
@@ -79,7 +79,7 @@ export function AdminAuth() {
       */}
       {open && !password && (
         <div className="mt-2 rounded border border-white/10 p-2 text-xs text-white/50">
-          Enter the admin password above to configure Google and Facebook sign-in.
+          Enter the admin password above to configure Google sign-in.
         </div>
       )}
 

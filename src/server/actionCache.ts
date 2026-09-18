@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import { mediaPath } from "./config";
 import { db, logEvent } from "./db";
+import { scheduleArchiveBackup } from "./archiveBackup";
 import { chatJSON } from "./gmi";
 import type { Outcome } from "./pipeline";
 import { deleteObject, isGeneratedUrl, keyForMediaUrl, r2Enabled } from "./storage";
@@ -51,6 +52,8 @@ db.exec(`CREATE INDEX IF NOT EXISTS action_clips_env ON action_clips(environment
 const MAX_PER_LOCATION = 50;
 /** Past this many clips in one location, a weak word score means a genuinely new idea, so skip the Gemma sweep. */
 const FALLBACK_ARCHIVE_LIMIT = 40;
+/** Longest the Gemma match may take before the lookup counts as a miss (typical: ~2.6s). */
+const MATCH_TIMEOUT_MS = 4000;
 
 /** Canonical form of an intent key, so small wording differences can't split the same key. */
 const normalizeIntent = (key: string | undefined) =>
@@ -220,7 +223,15 @@ export async function findReusableClip(opts: {
     location: opts.environmentId,
     pastActions: toCheck.map((c, i) => ({ number: i + 1, action: c.row.direction })),
   });
-  const verdict = await chatJSON<{ match: number | null; why: string }>(opts.model, MATCH_SYSTEM, user, "Action cache match").catch(err => {
+  // Bounded: this runs alongside LLM 1 and a slow answer (one took 16s) would hold the whole step. Past the
+  // limit it counts as a miss, which only costs a generation we would have paid for anyway.
+  const timeout = new Promise<{ match: null; why: string }>(resolve =>
+    setTimeout(() => resolve({ match: null, why: `timed out after ${MATCH_TIMEOUT_MS / 1000}s` }), MATCH_TIMEOUT_MS),
+  );
+  const verdict = await Promise.race([
+    chatJSON<{ match: number | null; why: string }>(opts.model, MATCH_SYSTEM, user, "Action cache match"),
+    timeout,
+  ]).catch(err => {
     logEvent({ kind: "error", label: "action cache match failed", status: "error", response: String(err) });
     return { match: null, why: "" };
   });
@@ -272,6 +283,7 @@ export function rememberClip(c: {
     $cost: c.costUsd ?? null,
   });
   prune(c.environmentId, c.outcome);
+  scheduleArchiveBackup();
   logEvent({
     kind: "job",
     label: "action clip saved for reuse",
@@ -320,7 +332,10 @@ async function discardClip(clipUrl: string) {
   }
 }
 
-export const markClipUsed = (id: number) => db.query(`UPDATE action_clips SET uses = uses + 1 WHERE id = ?`).run(id);
+export const markClipUsed = (id: number) => {
+  db.query(`UPDATE action_clips SET uses = uses + 1 WHERE id = ?`).run(id);
+  scheduleArchiveBackup(); // use counts decide what pruning keeps, so they are worth preserving too
+};
 
 /** Library stats for the admin panel. */
 export const libraryStats = () =>

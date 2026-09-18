@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, renameSync, rmSync } from "node:fs
 import { EXPORT_DIR, MEDIA_DIR, mediaPath } from "./config";
 import { jobContext, logEvent, traced } from "./db";
 import { markEphemeral } from "./ephemeral";
-import { getNode, type StoryNode } from "./pipeline";
+import { getNode, whenFinalized, type StoryNode } from "./pipeline";
 import { fetchTo, isGeneratedUrl, keyForMediaUrl, objectExists, offload, r2Enabled, withTempDir } from "./storage";
 
 const MUSIC = `${MEDIA_DIR}/music/loop.mp3`;
@@ -175,7 +175,10 @@ export async function exportFilm(nodeId: string) {
   const url = `/media/exports/${name}`;
   if (await exportExists(name)) return { url, cached: true };
 
-  const clipUrls = chain(node).map(n => n.clipUrl);
+  // A step's clip may still be moving from the provider's CDN into storage; stitch the stored copies.
+  const steps = chain(node);
+  await Promise.all(steps.map(n => whenFinalized(n.id)));
+  const clipUrls = steps.map(n => n.clipUrl);
 
   return once(url, () => traced(
     "job",

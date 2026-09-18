@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { ROOT, STORAGE_DIR } from "./config";
+import { keys, ROOT, STORAGE_DIR } from "./config";
 import { logEvent } from "./db";
 
 /**
@@ -13,19 +13,22 @@ import { logEvent } from "./db";
  * never sent back to the browser: the admin API reports only whether a secret is present.
  */
 
-export type ProviderId = "google" | "facebook";
-export const PROVIDER_IDS: ProviderId[] = ["google", "facebook"];
+// Google only for now. Facebook was wired up too, but isn't wanted; adding a provider back is one entry here.
+export type ProviderId = "google";
+export const PROVIDER_IDS: ProviderId[] = ["google"];
 
 export type ProviderCredentials = { clientId: string; clientSecret: string };
 type Stored = Partial<Record<ProviderId, ProviderCredentials>>;
 
 const FILE = STORAGE_DIR ? `${STORAGE_DIR}/auth-providers.json` : `${ROOT}data/auth-providers.json`;
 
-/** Env pins, checked first so a deployment can lock credentials out of the UI's reach. */
+/**
+ * Pinned credentials, checked first so they can't be changed through the UI: environment variables in
+ * deployment (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET), or keys.json locally (googleClientId / googleClientSecret).
+ */
 const fromEnv = (id: ProviderId): ProviderCredentials | null => {
-  const clientId = process.env[`${id.toUpperCase()}_CLIENT_ID`] ?? "";
-  const clientSecret = process.env[`${id.toUpperCase()}_CLIENT_SECRET`] ?? "";
-  return clientId && clientSecret ? { clientId, clientSecret } : null;
+  const pinned = { google: { clientId: keys.googleClientId, clientSecret: keys.googleClientSecret } }[id];
+  return pinned.clientId && pinned.clientSecret ? pinned : null;
 };
 
 let stored: Stored = existsSync(FILE) ? await Bun.file(FILE).json().catch(() => ({})) : {};

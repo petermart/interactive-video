@@ -37,6 +37,13 @@ export const keys = {
   masky: process.env.MASKY_API_KEY ?? fileKeys.masky ?? "",
   gmi: process.env.GMI_API_KEY ?? fileKeys.gmi ?? "",
   elevenlabs: process.env.ELEVENLABS_API_KEY ?? fileKeys.elevenlabs ?? "",
+  fal: process.env.FAL_KEY ?? process.env.FAL_API_KEY ?? fileKeys.fal ?? "",
+  /** Optional Admin-scope fal key: only used to read the credit balance, which a normal key can't. */
+  falAdmin: process.env.FAL_ADMIN_KEY ?? fileKeys.falAdmin ?? "",
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? fileKeys.googleClientId ?? "",
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? fileKeys.googleClientSecret ?? "",
+  /** Public by design (it ships in every page's HTML); kept here so local and deploy use the same source. */
+  cfAnalyticsToken: process.env.CF_ANALYTICS_TOKEN ?? fileKeys.cfAnalyticsToken ?? "",
 };
 
 /** Public origin of this server, used to hand out frame URLs other services can fetch. */
@@ -46,6 +53,19 @@ export const publicBaseUrl = () =>
 
 /** Masky is only offered where a key is configured; deployments without one stay on MachGen. */
 export const maskyAvailable = () => Boolean(keys.masky);
+
+/** A video provider can only be used when its API key is present. */
+export const providerAvailable = (provider: VideoProvider) =>
+  Boolean({ fal: keys.fal, machgen: keys.machgen, gmi: keys.gmi, masky: keys.masky }[provider]);
+
+/**
+ * Default video provider: the first one with a key, in order of preference. fal (H3 Max, fastest and as cheap
+ * as anything), then MachGen (H3 480p), then GMI Cloud (H3 at 768P only, slowest). Masky is never a default.
+ */
+export function preferredVideoProvider(): VideoProvider {
+  for (const provider of ["fal", "machgen", "gmi"] as const) if (providerAvailable(provider)) return provider;
+  return "machgen";
+}
 
 export type Character = { id: string; role: string; description: string; image: string | null };
 export type Environment = {
@@ -101,7 +121,7 @@ const defaults: Settings = {
   promptsTillSuccess: 6,
   liveLLM: true,
   liveVideo: false,
-  videoProvider: "machgen",
+  videoProvider: preferredVideoProvider(),
   maskyDraft: false,
   constantThink: true,
   reuseActions: true,
@@ -120,7 +140,7 @@ if (existsSync(SETTINGS_FILE)) {
 }
 
 export const getSettings = (): Settings =>
-  settings.videoProvider === "masky" && !maskyAvailable() ? { ...settings, videoProvider: "machgen" } : settings;
+  providerAvailable(settings.videoProvider) ? settings : { ...settings, videoProvider: preferredVideoProvider() };
 
 export async function updateSettings(patch: Partial<Settings>) {
   const next = { ...settings, ...patch };
@@ -138,7 +158,7 @@ export async function updateSettings(patch: Partial<Settings>) {
   next.showClipSource = Boolean(next.showClipSource);
   if (!GUEST_POLICIES.includes(next.guestPolicy)) next.guestPolicy = settings.guestPolicy;
   if (!VIDEO_PROVIDERS.includes(next.videoProvider)) next.videoProvider = settings.videoProvider;
-  if (next.videoProvider === "masky" && !maskyAvailable()) next.videoProvider = "machgen";
+  if (!providerAvailable(next.videoProvider)) next.videoProvider = preferredVideoProvider();
   next.maskyDraft = Boolean(next.maskyDraft);
   settings = next;
   await Bun.write(SETTINGS_FILE, JSON.stringify(settings, null, 2));

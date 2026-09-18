@@ -34,8 +34,11 @@ const buildOptions = () => ({
   baseURL: authBaseUrl(),
   secret: authSecret(),
   socialProviders: activeProviders(),
-  // The game has no password flow: social sign-in only, so there is no credential for us to mishandle.
-  emailAndPassword: { enabled: false },
+  // Email + password alongside Google, so nobody needs a Google account to keep playing. Better Auth hashes the
+  // passwords (scrypt) in its own `account` table. There is no email service yet, so addresses are not verified
+  // and there is no "forgot password" email: both need a mail provider wired into sendVerificationEmail /
+  // sendResetPassword before they can be turned on.
+  emailAndPassword: { enabled: true, minPasswordLength: 8, maxPasswordLength: 128, autoSignIn: true, requireEmailVerification: false },
 });
 
 let instance = betterAuth(buildOptions());
@@ -49,8 +52,10 @@ export function reloadAuth() {
   logEvent({ kind: "job", label: "auth reloaded", response: { providers: configuredProviders() } });
 }
 
-/** True once at least one provider is configured; until then the sign-in gate stays open. */
-export const authEnabled = () => Object.keys(activeProviders()).length > 0;
+/** Email + password is always available, so signing in is always possible and the gate can be enforced. */
+export const emailPasswordEnabled = () => true;
+export const authEnabled = () => emailPasswordEnabled() || Object.keys(activeProviders()).length > 0;
+/** Social providers with working credentials (the sign-in buttons); email + password is reported separately. */
 export const configuredProviders = () => Object.keys(activeProviders());
 
 /**

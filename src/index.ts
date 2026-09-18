@@ -2,7 +2,8 @@ import { serve } from "bun";
 import { existsSync } from "node:fs";
 import index from "./index.html";
 import { aboutPage } from "./server/about";
-import { CACHE_DIR, EXPORT_DIR, FRAMES_DIR, getSettings, maskyAvailable, MEDIA_DIR, publicBaseUrl, ROOT, updateSettings } from "./server/config";
+import { CACHE_DIR, EXPORT_DIR, FRAMES_DIR, getSettings, maskyAvailable, MEDIA_DIR, providerAvailable, publicBaseUrl, ROOT, updateSettings } from "./server/config";
+import { VIDEO_PROVIDERS } from "./server/constants";
 import { checkAdminPassword, creditsReport, MACHGEN_MIN_BALANCE_USD, videoGenerationAllowed } from "./server/credits";
 import { jobContext, jobEvents, looseEvents, recentJobs } from "./server/db";
 import { exportFilm } from "./server/export";
@@ -11,11 +12,13 @@ import { createSession, getJob, getNode, startDirection } from "./server/pipelin
 import { objectExists, presignGet, PRESIGN_TTL_SECONDS, putBytes, r2Enabled, storageFull } from "./server/storage";
 import { markDownloaded, viewerLeft } from "./server/ephemeral";
 import { analyticsToken } from "./server/analytics";
-import { auth, authBaseUrl, authEnabled, authSecret, callbackUrlFor, configuredProviders, currentUser, reloadAuth } from "./server/auth";
+import { auth, authBaseUrl, authEnabled, authSecret, callbackUrlFor, configuredProviders, currentUser, emailPasswordEnabled, reloadAuth } from "./server/auth";
 import { PROVIDER_IDS, providerStatus, saveProvider } from "./server/authConfig";
 import { checkQuota, guestCookie, identifyGuest, recordGameCompleted, recordGeneration } from "./server/quota";
 import { migrateOnBootIfRequested } from "./server/migrateVolume";
 import { startRetention } from "./server/retention";
+import { startArchiveBackups } from "./server/archiveBackup";
+import { tagJobOwner, usageReport } from "./server/usage";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The per-browser-session viewer UUID sent by the client, if valid. */
@@ -67,6 +70,9 @@ function generatedFrom(base: string, prefix: string) {
  */
 const effectivePolicy = () => (authEnabled() ? getSettings().guestPolicy : "unlimited");
 
+/** Video providers that have an API key here, in preference order: the only ones the admin panel offers. */
+const availableProviders = () => VIDEO_PROVIDERS.filter(providerAvailable);
+
 const server = serve({
   port: Number(process.env.PORT ?? 3000),
   routes: {
@@ -89,12 +95,12 @@ const server = serve({
      */
     "/api/settings": {
       // authEnabled lets the panel warn when a sign-in policy is set but cannot be enforced yet.
-      GET: () => Response.json({ ...getSettings(), maskyAvailable: maskyAvailable(), authEnabled: authEnabled() }),
+      GET: () => Response.json({ ...getSettings(), maskyAvailable: maskyAvailable(), availableProviders: availableProviders(), authEnabled: authEnabled() }),
       PUT: async req => {
         if (!checkAdminPassword(req.headers.get("x-admin-password"))) {
           return Response.json({ error: "Admin password required to change settings" }, { status: 401 });
         }
-        return Response.json({ ...(await updateSettings(await req.json())), maskyAvailable: maskyAvailable(), authEnabled: authEnabled() });
+        return Response.json({ ...(await updateSettings(await req.json())), maskyAvailable: maskyAvailable(), availableProviders: availableProviders(), authEnabled: authEnabled() });
       },
     },
 
@@ -133,7 +139,8 @@ const server = serve({
 
     // Public: lets the page show the out-of-credits banner. Only reports booleans, never balances or usage.
     "/api/status": async () => {
-      const paused = getSettings().liveVideo && !(await videoGenerationAllowed());
+      const settings = getSettings();
+      const paused = settings.liveVideo && !(await videoGenerationAllowed(settings.videoProvider));
       // Enough for the settings panel to warn without unlocking; the GB and cost stay behind the password.
       // The analytics token is public by design (it ships in the HTML of every page) and identifies the
       // site rather than granting access, so serving it here is safe.
@@ -146,6 +153,15 @@ const server = serve({
     },
 
     // Admin-only credit balances (password checked against a stored SHA-256 hash).
+    // Players and generations per player, for the admin usage report.
+    "/api/admin/usage": {
+      POST: async req => {
+        const { password } = await req.json().catch(() => ({}));
+        if (!checkAdminPassword(password)) return Response.json({ error: "Wrong password" }, { status: 401 });
+        return Response.json(usageReport());
+      },
+    },
+
     "/api/admin/credits": {
       POST: async req => {
         const { password } = await req.json().catch(() => ({}));
@@ -258,7 +274,8 @@ const server = serve({
 
         // The sign-in gate. Signed-in users pass straight through; guests are measured against the policy.
         const guest = identifyGuest(req);
-        const signedIn = Boolean(await currentUser(req));
+        const user = await currentUser(req);
+        const signedIn = Boolean(user);
         const verdict = checkQuota(guest, effectivePolicy(), signedIn);
         if (!verdict.allowed) {
           return Response.json(
@@ -270,6 +287,7 @@ const server = serve({
         try {
           const job = startDirection(fromNodeId, direction, viewerOf(req));
           recordGeneration(guest, signedIn);
+          tagJobOwner(job.id, guest.cookieId, user?.id ?? null);
           return Response.json(
             { jobId: job.id },
             { headers: guest.issueCookie ? { "set-cookie": guestCookie(guest.cookieId) } : {} },
@@ -292,6 +310,7 @@ const server = serve({
           image: user?.image ?? null,
           authEnabled: authEnabled(),
           providers: configuredProviders(),
+          emailPassword: emailPasswordEnabled(),
           policy: verdict.policy,
           used: verdict.used,
           canGenerate: verdict.allowed,
@@ -329,3 +348,4 @@ console.log(`Escape from Slop Prison running at ${server.url}`);
 migrateOnBootIfRequested();
 // Debug history grows without bound and shares the volume with everything else.
 startRetention();
+void startArchiveBackups();

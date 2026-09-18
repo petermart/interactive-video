@@ -1,19 +1,41 @@
 import { timingSafeEqual } from "node:crypto";
 import { keys } from "./config";
 import { libraryStats } from "./actionCache";
-import { db, logEvent } from "./db";
+import type { VideoProvider } from "./constants";
+import { db, logEvent, tryExec } from "./db";
 import { storageUsage } from "./storage";
 import { dbBytes } from "./retention";
 
-/** Stop generating videos automatically once MachGen drops below this balance. */
-export const MACHGEN_MIN_BALANCE_USD = 10;
+/** Stop generating videos automatically once the active video provider drops below this balance. */
+export const MIN_BALANCE_USD = 10;
+/** Kept for existing callers. */
+export const MACHGEN_MIN_BALANCE_USD = MIN_BALANCE_USD;
 
 /**
  * GMI only exposes its credit balance on the web console (its billing API rejects API keys), so we estimate:
- * the balance read from the console at `at`, minus the LLM spend logged to the debug DB since then.
+ * the balance read from the console at `at`, minus the spend logged since then (LLM calls from the debug
+ * events, video generations from the durable ledger below).
  * Update this when you check https://console.gmicloud.ai/user-setting/credits-coupons.
  */
-export const GMI_BALANCE_BASELINE = { usd: 9.0, at: "2026-09-14T00:00:00.000Z" };
+export const GMI_BALANCE_BASELINE = { usd: 300.0, at: "2026-09-18T03:30:00.000Z" };
+
+/**
+ * GMI video spend, kept apart from the debug events on purpose: those are pruned after a week, and a
+ * $1.20 clip dropping out of the sum would quietly inflate the balance estimate the credit guard trusts.
+ */
+tryExec("gmi spend ledger", `
+  CREATE TABLE IF NOT EXISTS gmi_spend (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    kind TEXT NOT NULL,
+    label TEXT,
+    cost_usd REAL NOT NULL
+  );
+`);
+
+export function recordGmiSpend(kind: string, costUsd: number, label?: string) {
+  db.query(`INSERT INTO gmi_spend (kind, label, cost_usd) VALUES (?, ?, ?)`).run(kind, label ?? null, costUsd);
+}
 
 /**
  * The admin password, from ADMIN_PASSWORD when set.
@@ -62,10 +84,47 @@ export async function machgenBalance(force = false): Promise<MachgenBalance> {
   return value;
 }
 
-/** False once MachGen is below the minimum: the pipeline then runs without generating videos. */
-export async function videoGenerationAllowed() {
+// ---------- fal ----------
+
+type FalBalance = { balanceUsd: number | null; currency?: string; configured: boolean; error?: string };
+let falCache: { at: number; value: FalBalance } | null = null;
+
+/**
+ * fal credit balance. fal only reveals it to an Admin-scope key (a normal key gets 403), so this needs the
+ * optional `falAdmin` key; without one it reports "not configured" and fal generation is never paused.
+ * Cached for 30s, like MachGen's.
+ */
+export async function falBalance(force = false): Promise<FalBalance> {
+  if (!keys.falAdmin) return { balanceUsd: null, configured: false };
+  if (!force && falCache && Date.now() - falCache.at < 30_000) return falCache.value;
+  let value: FalBalance;
+  try {
+    const res = await fetch("https://api.fal.ai/v1/account/billing?expand=credits", {
+      headers: { Authorization: `Key ${keys.falAdmin}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    const body: any = await res.json();
+    if (!res.ok) throw new Error(`fal billing ${res.status}: ${body?.error?.message ?? ""}`.trim());
+    value = { balanceUsd: Number(body.credits?.current_balance), currency: body.credits?.currency, configured: true };
+  } catch (err) {
+    // Unknown balance: keep generating rather than block play on a flaky billing call, but surface the error.
+    value = { balanceUsd: null, configured: true, error: String((err as Error)?.message ?? err) };
+  }
+  falCache = { at: Date.now(), value };
+  return value;
+}
+
+/** False once the provider is below the minimum: the pipeline then runs without generating videos. */
+export async function videoGenerationAllowed(provider: VideoProvider = "machgen") {
+  if (provider === "gmi") return gmiEstimate().estimatedUsd >= MIN_BALANCE_USD;
+  if (provider === "fal") {
+    const { balanceUsd } = await falBalance();
+    return balanceUsd === null || balanceUsd >= MIN_BALANCE_USD;
+  }
+  // Masky has no balance API: topped up by hand, so there is nothing to check against.
+  if (provider === "masky") return true;
   const { balanceUsd } = await machgenBalance();
-  return balanceUsd === null || balanceUsd >= MACHGEN_MIN_BALANCE_USD;
+  return balanceUsd === null || balanceUsd >= MIN_BALANCE_USD;
 }
 
 // ---------- GMI ----------
@@ -99,19 +158,35 @@ export function gmiEstimate() {
       `SELECT SUM(cost_usd) AS spent, COUNT(*) AS calls FROM events WHERE kind = 'llm' AND status = 'ok' AND cost_usd IS NOT NULL AND ts >= ?`,
     )
     .get(GMI_BALANCE_BASELINE.at);
-  const spent = row?.spent ?? 0;
+  const video = db
+    .query<{ spent: number | null; clips: number }, [string]>(`SELECT SUM(cost_usd) AS spent, COUNT(*) AS clips FROM gmi_spend WHERE ts >= ?`)
+    .get(GMI_BALANCE_BASELINE.at);
+  const llmSpent = row?.spent ?? 0;
+  const videoSpent = video?.spent ?? 0;
+  const spent = llmSpent + videoSpent;
+  const estimatedUsd = Math.max(0, GMI_BALANCE_BASELINE.usd - spent);
   return {
-    estimatedUsd: Math.max(0, GMI_BALANCE_BASELINE.usd - spent),
+    estimatedUsd,
     baselineUsd: GMI_BALANCE_BASELINE.usd,
     baselineAt: GMI_BALANCE_BASELINE.at,
     spentSinceBaselineUsd: spent,
+    llmSpentUsd: llmSpent,
+    videoSpentUsd: videoSpent,
+    videoClips: video?.clips ?? 0,
     costedCalls: row?.calls ?? 0,
+    minBalanceUsd: MIN_BALANCE_USD,
+    generationPaused: estimatedUsd < MIN_BALANCE_USD,
   };
 }
 
 export async function creditsReport() {
-  const machgen = await machgenBalance(true);
+  const [machgen, fal] = await Promise.all([machgenBalance(true), falBalance(true)]);
   return {
+    fal: {
+      ...fal,
+      minBalanceUsd: MIN_BALANCE_USD,
+      generationPaused: fal.balanceUsd !== null && fal.balanceUsd < MIN_BALANCE_USD,
+    },
     machgen: {
       ...machgen,
       minBalanceUsd: MACHGEN_MIN_BALANCE_USD,

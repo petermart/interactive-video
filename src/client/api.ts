@@ -1,10 +1,11 @@
 import type { Settings } from "../server/config";
+import type { VideoProvider } from "../server/constants";
 import type { Job, StoryNode } from "../server/pipeline";
 import { apiFetch } from "./viewer";
 
 /** Settings plus whether this server has a Masky key configured. */
 /** authEnabled: whether any sign-in provider works, so a sign-in policy is actually being enforced. */
-export type SettingsView = Settings & { maskyAvailable: boolean; authEnabled: boolean };
+export type SettingsView = Settings & { maskyAvailable: boolean; authEnabled: boolean; availableProviders?: VideoProvider[] };
 
 export type { Job, Settings, StoryNode };
 
