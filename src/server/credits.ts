@@ -117,7 +117,7 @@ export async function falBalance(force = false): Promise<FalBalance> {
 /** False once the provider is below the minimum: the pipeline then runs without generating videos. */
 export async function videoGenerationAllowed(provider: VideoProvider = "machgen") {
   if (provider === "gmi") return gmiEstimate().estimatedUsd >= MIN_BALANCE_USD;
-  if (provider === "fal") {
+  if (provider === "fal" || provider === "fal-turbo") {
     const { balanceUsd } = await falBalance();
     return balanceUsd === null || balanceUsd >= MIN_BALANCE_USD;
   }

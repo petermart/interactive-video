@@ -14,6 +14,13 @@ export type VideoRequest = {
   src_image_urls?: string[];
   keyframe_indices?: (0 | -1)[];
   durationSecs: number;
+  /**
+   * What each entry of src_image_urls is, in the same order. Providers that take reference images use the prompt
+   * legend instead; fal turbo, which only takes a first frame, packs them into one labeled sheet from this.
+   */
+  refs?: { kind: "environment" | "location" | "character" | "frame"; sheetLabel: string; note: string }[];
+  /** The shot list without the "Image N: ..." legend, for providers that don't number their references. */
+  shotPrompt?: string;
 };
 
 /** MachGen/MiniMax accept at most 9 reference images per request. */

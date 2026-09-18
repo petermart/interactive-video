@@ -132,10 +132,20 @@ variables in `.env` on the machine you run them from.
 
 | Provider | Model | Resolution | 15s step | Submit → saved |
 |---|---|---|---|---|
-| **fal** (default) | MiniMax H3 **Max** | 480P | $0.75 (+~$0.02 refs) | **9.2s** |
+| **fal-turbo** (default) | MiniMax H3 Max **turbo** + reference sheet | 480P | **$0.19** until Sept 30, $0.375 after | **4.4s** |
+| **fal** | MiniMax H3 **Max** | 480P | $0.75 (+~$0.02 refs) | 9.2s |
 | MachGen | MiniMax H3 | 480p | $0.75 R2V / $0.525 I2V | 13-30s |
 | GMI Cloud | MiniMax H3 | 768P minimum | $1.20 | ~274s |
 
+- **fal-turbo** takes no reference images, only a first frame. So every reference the shot needs (environment,
+  protagonist, previous shot, cast; up to 9) is packed into one labeled 16:9 sheet (`src/server/refSheet.ts`), sent as
+  the first frame, and the prompt tells the model to jump cut away from it at once. In testing the sheet showed for
+  one frame (1/24s), and the whole first second is cut (the prompt tells the model the film starts at 1s).
+  **The sheet never reaches storage:** the player starts fal's link 1s in, and the background step re-encodes the
+  clip from 1s before uploading it, deleting the untrimmed download. So R2, the archive, film
+  stitching and share exports only ever contain the trimmed clip. Only turbo reference-sheet clips are trimmed;
+  every other provider's clips (and turbo's idle loops, which open on a real frame) are stored as generated. The
+  Docker image installs `fonts-dejavu-core` for the sheet labels.
 - **fal** sends reference images inline (1024px JPEG data URIs, built once per server run), so nothing is uploaded first.
   They are kept at 1024px because fal bills references above 4,096 tokens; nine 1600px sheets would add ~$0.17 a step.
   Prompt expansion is disabled. fal has no balance API, so the $10 auto-pause does not apply to it: watch the fal
@@ -147,6 +157,17 @@ variables in `.env` on the machine you run them from.
   not archived.
 - **GMI** (768P only, no H3 Max, no 480p) and **MachGen** stay selectable. GMI fetches references by URL, so they go to
   R2 once (`refs/…`) and are passed as signed URLs.
+
+**Destinations:** the shot writer's `environmentId` is where Sloppy Joe is at the END of the clip, and must agree
+with the summary. The server only accepts the current environment or a neighbor, except for a **scheduled move**
+(`scheduledMove: true`): going along with the prison day (meals, yard, showers, work duty, library, chapel,
+visitation, sick call, count) can reach those places from anywhere. Anything else keeps him where he is and is logged.
+When he moves, both the starting and the destination plates are attached as references.
+
+**The finale:** whether a success ends the game is known before LLM 1 runs (`successEscapesPrison`: steps
+succeeded + 1 ≥ prompts till success), so LLM 1 writes that success beat as the escape itself, and the shot writer
+must show him actually getting out past the last barrier, ending outside the walls. The escape may end at any
+EXIT CANDIDATE, adjacent or not.
 
 **Step speed-ups:** LLM 1 now starts at the same time as the archive lookup instead of after it (a hit discards it,
 ~$0.0005 wasted), and the Gemma archive match gives up after 4s and counts as a miss.
@@ -178,6 +199,15 @@ Lookup order, cheapest first:
 
 **Archive size:** each location keeps its 50 most-reused clips per outcome; older unused rows are pruned on save, and the
 pruned clip's video is deleted from R2 with it.
+
+**Archive manager (`/admin/archive`):** every archived action with its clip, result, next location and shot list.
+Per entry you can **edit** the result (success / escaped / failed / rejected), fail type, next location, summary,
+rejection reason and shot prompt; **regenerate** the clip from its shot prompt with any provider that has a key
+(the page shows the rough cost, and the old video is deleted once replaced); or **delete** it (the next player
+gets a fresh judgement). It needs a real admin sign-in: `/admin` asks for the admin password and sets a signed,
+HttpOnly, SameSite=Strict session cookie for 12 hours; without it the page redirects to the sign-in form and every
+archive API answers 401. The in-game admin panel has an *Action archive manager ↗* button that signs you in with the
+password you already entered. Changing `ADMIN_PASSWORD` or `AUTH_SECRET` signs every admin out.
 
 **Backups:** the rows live in SQLite on the deploy volume, which survives redeploys but not the volume or service being
 deleted. So the deployment also writes the whole table to R2 as `backups/action_clips.json` (15s after any change, on

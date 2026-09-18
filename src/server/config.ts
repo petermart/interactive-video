@@ -56,14 +56,15 @@ export const maskyAvailable = () => Boolean(keys.masky);
 
 /** A video provider can only be used when its API key is present. */
 export const providerAvailable = (provider: VideoProvider) =>
-  Boolean({ fal: keys.fal, machgen: keys.machgen, gmi: keys.gmi, masky: keys.masky }[provider]);
+  Boolean({ "fal-turbo": keys.fal, fal: keys.fal, machgen: keys.machgen, gmi: keys.gmi, masky: keys.masky }[provider]);
 
 /**
- * Default video provider: the first one with a key, in order of preference. fal (H3 Max, fastest and as cheap
- * as anything), then MachGen (H3 480p), then GMI Cloud (H3 at 768P only, slowest). Masky is never a default.
+ * Default video provider: the first one with a key, in order of preference. fal turbo (H3 Max turbo with a
+ * labeled reference sheet as its first frame: cheapest and fastest), fal (H3 Max with real reference images),
+ * then MachGen (H3 480p), then GMI Cloud (H3 at 768P only, slowest). Masky is never a default.
  */
 export function preferredVideoProvider(): VideoProvider {
-  for (const provider of ["fal", "machgen", "gmi"] as const) if (providerAvailable(provider)) return provider;
+  for (const provider of ["fal-turbo", "fal", "machgen", "gmi"] as const) if (providerAvailable(provider)) return provider;
   return "machgen";
 }
 

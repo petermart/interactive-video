@@ -3,7 +3,7 @@ FROM oven/bun:1.3-debian
 
 # ffmpeg/ffprobe: last-frame extraction, reference downscaling, film export.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+  && apt-get install -y --no-install-recommends ffmpeg ca-certificates fonts-dejavu-core \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

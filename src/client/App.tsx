@@ -162,11 +162,25 @@ export function App() {
     };
   }, [music]);
 
-  const playVideo = (src: string | null, loop: boolean) => {
+  /**
+   * `startAt` skips the opening of a clip that begins on a reference sheet (fal turbo). It is only non-zero while
+   * the node still points at fal's link: the stored copy is trimmed, so replays, stitched films and shares start clean.
+   */
+  const playVideo = (src: string | null, loop: boolean, startAt = 0) => {
     const v = videoRef.current;
     if (!v || !src) return;
     v.loop = loop;
-    v.src = src;
+    // The #t= media fragment makes the browser start there before painting anything; the seek below backs it up.
+    v.src = startAt > 0 ? `${src}#t=${startAt}` : src;
+    if (startAt > 0) {
+      v.addEventListener(
+        "loadedmetadata",
+        () => {
+          v.currentTime = startAt;
+        },
+        { once: true },
+      );
+    }
     v.play().catch(() => {});
   };
 
@@ -194,7 +208,7 @@ export function App() {
     setPlaying(node);
     setPhase("intro");
     // The intro is a seamless loop that doubles as the idle loop, so keep it looping while the viewer types.
-    playVideo(node.clipUrl, node.loopUrl === node.clipUrl);
+    playVideo(node.clipUrl, node.loopUrl === node.clipUrl, node.clipStartSecs);
   };
 
   const goIdle = (node: StoryNode) => {
@@ -212,7 +226,7 @@ export function App() {
     if (!playing || playing.outcome === "intro") return;
     if (playing.clipUrl) {
       setPhase("clip");
-      playVideo(playing.clipUrl, false);
+      playVideo(playing.clipUrl, false, playing.clipStartSecs);
     } else if (playing.scene) {
       setPhase("scene");
     }
@@ -287,7 +301,7 @@ export function App() {
           setPlaying(job.node);
           if (job.node.clipUrl) {
             setPhase("clip");
-            playVideo(job.node.clipUrl, false);
+            playVideo(job.node.clipUrl, false, job.node.clipStartSecs);
           } else {
             setPhase("scene");
           }

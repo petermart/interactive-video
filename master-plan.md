@@ -14,7 +14,8 @@ and MiniMax H3 Max (on fal.ai) generates it in roughly 7 seconds. A good idea ge
 | Piece | Provider | Notes |
 |---|---|---|
 | Web app | Bun (`bun run dev`) | `server.ts` + static `public/`. No framework. |
-| Video | **fal.ai** `minimax/h3-max` (default) | MiniMax H3 **Max** at 480P, $0.05/sec: a 15s step clip is **$0.75**. Measured on a 15s reference-to-video step: **9.2s** from submit to saved file (1.1s queue, 6.3s generating). The clip starts playing from fal's CDN as soon as it is ready. Prompt expansion disabled. |
+| Video | **fal.ai** `minimax/h3-max-turbo` (default), references packed into a labeled first-frame sheet that is trimmed off; $0.0125/s at 480P until Sept 30 ($0.025/s after), ~4s per 15s clip |
+| Video (references) | **fal.ai** `minimax/h3-max` | MiniMax H3 **Max** at 480P, $0.05/sec: a 15s step clip is **$0.75**. Measured on a 15s reference-to-video step: **9.2s** from submit to saved file (1.1s queue, 6.3s generating). The clip starts playing from fal's CDN as soon as it is ready. Prompt expansion disabled. |
 | Video (fallbacks) | **MachGen** `MiniMax-H3`, then **GMI Cloud** `MiniMax-H3` | Default provider is the first with a key: fal → MachGen → GMI. MachGen: H3 480p, $0.75 R2V / $0.525 I2V per 15s, 13-30s. GMI: 768P minimum (no 480p, no H3 Max), $1.20 per 15s, ~4.5 min. |
 | LLM | **GMI Cloud** `google/gemini-3.5-flash-lite` | OpenAI-compatible, `https://api.gmi-serving.com/v1`. ~$0.001/call, ~2s. Archive matching uses `google/gemma-4-26b-a4b-it`. |
 | Character/environment art | **GMI Cloud** `gemini-3-pro-image` (Nano Banana Pro) | TODO: confirm whether a "Nano Banana 3 Pro" ID exists. Request-queue API. |

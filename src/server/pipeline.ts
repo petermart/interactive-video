@@ -1,15 +1,16 @@
-import { clamp, getSettings, introMedia, ROOT, world, type OutcomeMode, type Settings } from "./config";
-import { findByIntent, findReusableClip, markClipUsed, rememberClip, type CachedClip } from "./actionCache";
+import { CACHE_DIR, clamp, getSettings, introMedia, mediaPath, ROOT, world, type OutcomeMode, type Settings } from "./config";
+import { findByIntent, findReusableClip, getArchived, markClipUsed, rememberClip, replaceArchivedClip, type CachedClip } from "./actionCache";
 import type { VideoProvider } from "./constants";
 import { MIN_BALANCE_USD, videoGenerationAllowed } from "./credits";
 import { jobContext, loadJob, loadNode, logEvent, saveJob, saveNode } from "./db";
 import { chatJSON } from "./gmi";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import * as falTurboVideo from "./falTurboVideo";
 import * as falVideo from "./falVideo";
 import * as gmiVideo from "./gmiVideo";
 import * as machgen from "./machgen";
 import { hasAsset, lastFrame, MAX_IMAGE_REFS, type VideoRequest } from "./machgen";
-import { releaseLocalCopy } from "./storage";
+import { fetchTo, isGeneratedUrl, keyForMediaUrl, objectExists, putFile, r2Enabled, releaseLocalCopy } from "./storage";
 import { generateMaskyVideo } from "./masky";
 import { diagnosticSystem, writerSystem } from "./prompts";
 
@@ -35,6 +36,11 @@ export type StoryNode = {
   scene?: { summary: string; shotPrompt: string };
   /** Set when this step replayed a clip another viewer generated for the same action here. */
   reusedFrom?: string;
+  /**
+   * Seconds to skip at the start of clipUrl. Only set while clipUrl is a provider's CDN link for a clip that opens
+   * on a reference sheet (fal turbo); the stored copy is trimmed, so this goes back to 0 once it replaces the link.
+   */
+  clipStartSecs?: number;
   lastFrameFile?: string;
 };
 
@@ -57,6 +63,8 @@ export type Diagnosis = {
 type ShotPlan = {
   shotPrompt: string;
   environmentId: string;
+  /** He got there by going along with the prison day (meals, yard, showers, ...): may skip adjacency. */
+  scheduledMove?: boolean;
   characterIds: string[];
   summary: string;
   loopPrompt: string;
@@ -174,6 +182,12 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     stepsSucceeded: from.depth,
     promptsTillSuccess: settings.promptsTillSuccess,
     exitProximity: Number((from.depth / settings.promptsTillSuccess).toFixed(2)),
+    // Known before the verdict: if this step succeeds, the game ends. LLM 1 has to write the success beat as the
+    // escape itself, or the finale plays a small step inside the walls with a "you escaped" screen after it.
+    successEscapesPrison: from.depth + 1 >= settings.promptsTillSuccess,
+    ...(from.depth + 1 >= settings.promptsTillSuccess && {
+      finale: `If this succeeds, the game ends: successBeat must get him completely out of the prison, from ${from.environmentId} through or past the last barrier to outside the walls, free.`,
+    }),
     ...(settings.outcomeMode === "hybrid" && {
       successProbability: settings.successProbability,
       creativityPoints: settings.creativityPoints,
@@ -258,6 +272,17 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     beat,
     direction,
     currentEnvironment: from.environmentId,
+    ...(outcome === "escaped" && {
+      exitCandidates: world.exitEnvironments,
+      // Spelled out in the input as well as the system prompt: the fast writer follows input far more reliably,
+      // and without this it would play the beat inside the walls and end on a corridor close-up.
+      finale:
+        `This clip is the END OF THE GAME. He must get COMPLETELY OUT of the prison in this clip: start from the beat, ` +
+        `then keep going through or past the last barrier (wall, fence, gate, roof, drain or vehicle) and out. The last shot ` +
+        `must be a triumphant WIDE shot OUTSIDE the prison walls, him free, the prison behind him. Do not end inside the ` +
+        `prison and do not end on a close-up. environmentId is the exit he leaves through: ${nearestExit(from.environmentId)} ` +
+        `is the nearest from here (any of exitCandidates is fine if the story fits one better).`,
+    }),
     storySoFar: story,
   });
   let plan: ShotPlan;
@@ -267,6 +292,7 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     plan = mockPlan(from, beat, outcome);
     logEvent({ kind: "llm", label: "LLM 2 shot writer · mock", request: writerInput, response: plan });
   }
+  plan.environmentId = destinationFor(from, plan.environmentId, Boolean(plan.scheduledMove), outcome === "escaped");
   job.debug.plan = plan;
 
   // H3 clip
@@ -283,7 +309,7 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     id: crypto.randomUUID(),
     parentId: from.id,
     depth: success ? nextDepth : from.depth,
-    environmentId: world.environments.some(e => e.id === plan.environmentId) ? plan.environmentId : from.environmentId,
+    environmentId: plan.environmentId, // already checked by destinationFor
     direction,
     outcome,
     failType: success ? undefined : diagnosis.failType,
@@ -302,7 +328,7 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
         ? await generateMaskyVideo({
             prompt: plan.shotPrompt,
             // Continuity without reference images: this clip opens on the previous clip's final frame.
-            firstFrameFile: firstFrameFor(from),
+            firstFrameFile: await firstFrameFor(from),
             durationSecs: STEP_SECS,
             draft: settings.maskyDraft,
           })
@@ -314,6 +340,7 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
       node.clipUrl = url;
       // ffmpeg needs the clip on disk; once its last frame is out, the local copy has served its purpose.
       node.lastFrameFile = await lastFrame(file);
+      await keepFrame(node.lastFrameFile);
       await releaseLocalCopy(file, url);
       if (settings.reuseActions) {
         rememberClip({
@@ -329,6 +356,7 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
           lastFrameFile: node.lastFrameFile,
           provider: settings.videoProvider,
           costUsd,
+          characterIds: plan.characterIds,
         });
       }
     };
@@ -337,11 +365,13 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
       // Play straight from the provider's CDN: the player starts watching now, while the download, the copy
       // to R2, the last frame and the archive entry happen in the background (~2-4s saved per step).
       node.clipUrl = clip.url;
+      node.clipStartSecs = clip.clipStartSecs || undefined;
       const finalize = clip.finalize;
       trackFinalize(
         node,
         (async () => {
           const local = await finalize();
+          node.clipStartSecs = undefined; // the stored copy is already trimmed
           await store(local.file, local.url);
           putNode(node); // persist the stable /media URL in place of the CDN link
         })(),
@@ -434,13 +464,114 @@ function replayArchived(job: Job, from: StoryNode, direction: string, known: Cac
  * 1. the environment plate (always), 2. the protagonist sheet, 3. the previous clip's last frame (continuity),
  * 4. other characters in the order the writer ranked them.
  */
-export function selectReferences(plan: ShotPlan, hasPreviousFrame: boolean) {
-  const refs: { label: string; image: string }[] = [];
-  const env = world.environments.find(e => e.id === plan.environmentId);
-  if (env?.image) refs.push({ label: `environment plate of ${env.id}`, image: env.image });
+/**
+ * Places the normal prison day takes inmates to, under escort. A move that happens by going along with the
+ * schedule ("wait until lunchtime") may reach one of these from anywhere, not just from a neighboring room.
+ * Solitary is deliberately absent: it is a punishment, not part of the day.
+ */
+const SCHEDULE_DESTINATIONS = new Set([
+  "cafeteria", "yard", "showers", "library", "chapel", "visitation", "infirmary",
+  "laundry", "kitchen", "workshop", "cell-block-a", "cell-block-tier",
+]);
+
+/**
+ * Where the protagonist really ends up. The writer names it, but only the current environment, one of its
+ * neighbors, or (for a scheduled move) a place on the prison's daily routine is reachable in one step. Anything
+ * else (an unknown id, or a room two doors away) keeps him where he is rather than teleporting him, and is logged
+ * so a bad pattern in the writer shows up in the debug history.
+ */
+function destinationFor(from: StoryNode, proposed: string, scheduled = false, escaping = false) {
+  // The finale: he leaves through an exit, which is rarely next door, and the game ends so nothing follows on. A
+  // room inside the walls can't be where an escape ends, so the nearest exit stands in for it.
+  if (escaping) return world.exitEnvironments.includes(proposed) ? proposed : nearestExit(from.environmentId);
+  if (proposed === from.environmentId) return proposed;
+  if (!world.environments.some(e => e.id === proposed)) return staying(from, proposed, "unknown environment");
+  const here = world.environments.find(e => e.id === from.environmentId);
+  if (here?.neighbors.includes(proposed)) return proposed;
+  if (scheduled && SCHEDULE_DESTINATIONS.has(proposed)) {
+    logEvent({ kind: "decision", label: "scheduled move", response: { from: from.environmentId, to: proposed } });
+    return proposed;
+  }
+  return staying(from, proposed, scheduled ? "not a place the daily schedule goes" : "not a neighboring environment");
+}
+
+/** The exit environment fewest rooms away from `start` on the map (breadth-first over neighbors). */
+function nearestExit(start: string) {
+  const exits = new Set(world.exitEnvironments);
+  const seen = new Set([start]);
+  let frontier = [start];
+  while (frontier.length) {
+    const hit = frontier.find(id => exits.has(id));
+    if (hit) return hit;
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const n of world.environments.find(e => e.id === id)?.neighbors ?? []) {
+        if (!seen.has(n)) {
+          seen.add(n);
+          next.push(n);
+        }
+      }
+    }
+    frontier = next;
+  }
+  return world.exitEnvironments[0] ?? start;
+}
+
+function staying(from: StoryNode, proposed: string, reason: string) {
+  const here = world.environments.find(e => e.id === from.environmentId);
+  logEvent({
+    kind: "decision",
+    label: "destination not reachable, staying put",
+    status: "error",
+    response: { from: from.environmentId, proposed, reason, neighbors: here?.neighbors ?? [] },
+  });
+  return from.environmentId;
+}
+
+/** First sentence of a description: enough to tell a sheet's characters apart without a paragraph each. */
+const firstSentence = (text: string) => (text.split(/(?<=[.!?])\s/)[0] ?? text).slice(0, 140);
+
+type Reference = { label: string; image: string; kind: "environment" | "location" | "character"; sheetLabel: string; note: string };
+
+/**
+ * `startEnvironmentId` is where the clip opens. When the protagonist moves (plan.environmentId, the destination,
+ * differs), both plates are attached: the clip has to show where he starts and where he ends up. The environment
+ * he starts in stays first, so on a turbo sheet it gets the big panel.
+ */
+export function selectReferences(plan: ShotPlan, hasPreviousFrame: boolean, startEnvironmentId = plan.environmentId) {
+  const refs: Reference[] = [];
+  const start = world.environments.find(e => e.id === startEnvironmentId);
+  const destination = world.environments.find(e => e.id === plan.environmentId);
+  const moves = Boolean(start && destination && start.id !== destination.id);
+  if (start?.image) {
+    refs.push({
+      label: moves ? `environment plate of ${start.id} (where the clip starts)` : `environment plate of ${start.id}`,
+      image: start.image,
+      kind: "environment",
+      sheetLabel: moves ? `ENVIRONMENT - ${start.id} (start)` : `ENVIRONMENT - ${start.id}`,
+      note: moves ? "where this clip starts" : "the location this clip takes place in",
+    });
+  }
+  if (moves && destination?.image) {
+    refs.push({
+      label: `environment plate of ${destination.id} (where the clip ends)`,
+      image: destination.image,
+      kind: "location",
+      sheetLabel: `${destination.id.toUpperCase()} (end)`,
+      note: "where the protagonist ends up by the end of this clip",
+    });
+  }
 
   const protagonist = world.characters.find(c => c.id === "protagonist");
-  if (protagonist?.image) refs.push({ label: "character sheet of the protagonist (red jumpsuit)", image: protagonist.image });
+  if (protagonist?.image) {
+    refs.push({
+      label: "character sheet of the protagonist (red jumpsuit)",
+      image: protagonist.image,
+      kind: "character",
+      sheetLabel: "PROTAGONIST - Sloppy Joe (red jumpsuit)",
+      note: "the protagonist, always in his red jumpsuit",
+    });
+  }
 
   const slotsForCast = MAX_IMAGE_REFS - refs.length - (hasPreviousFrame ? 1 : 0);
   const cast = plan.characterIds
@@ -448,7 +579,15 @@ export function selectReferences(plan: ShotPlan, hasPreviousFrame: boolean) {
     .map(id => world.characters.find(c => c.id === id))
     .filter(c => c?.image)
     .slice(0, Math.max(0, slotsForCast))
-    .map(c => ({ label: `character sheet of ${c!.id} (${c!.role})`, image: c!.image! }));
+    .map(
+      (c): Reference => ({
+        label: `character sheet of ${c!.id} (${c!.role})`,
+        image: c!.image!,
+        kind: "character",
+        sheetLabel: c!.id.toUpperCase(),
+        note: `${c!.role}: ${firstSentence(c!.description)}`,
+      }),
+    );
 
   return { refs, cast };
 }
@@ -457,9 +596,79 @@ export function selectReferences(plan: ShotPlan, hasPreviousFrame: boolean) {
 const INTRO_LAST_FRAME = "common-generated-assets/videos/intro-keyframe.png";
 const INTRO_LAST_FRAME_JPEG = "media/refs/common-generated-assets__videos__intro-keyframe.jpg";
 
+/**
+ * Last frames are what the next clip continues from, so they are kept in R2 beside the clips (same key layout:
+ * `cache/<clip>-last.png`). The local PNG is only a working copy: the container disk is cleared by migrations and
+ * redeploys, which is how archived clips ended up pointing at frames that no longer existed and crashed the step
+ * after every cache hit.
+ */
+async function keepFrame(file: string) {
+  if (!r2Enabled()) return;
+  try {
+    await putFile(`cache/${file.split(/[\\/]/).pop()}`, file);
+  } catch (err) {
+    logEvent({ kind: "error", label: "last frame not stored in R2", status: "error", response: String(err) });
+  }
+}
+
+/**
+ * A local copy of a node's last frame, or null. Tries, in order: the file on disk, the copy in R2, and finally
+ * re-extracting it from the node's clip. Never throws: a missing continuity frame costs the next clip its
+ * opening reference, not the whole step.
+ */
+async function ensureLastFrame(node: StoryNode): Promise<string | null> {
+  try {
+    if (node.lastFrameFile && existsSync(node.lastFrameFile)) return node.lastFrameFile;
+    mkdirSync(CACHE_DIR, { recursive: true });
+    const name = node.lastFrameFile?.split(/[\\/]/).pop();
+    if (name && r2Enabled() && (await objectExists(`cache/${name}`))) {
+      node.lastFrameFile = await fetchTo(`cache/${name}`, CACHE_DIR);
+      return node.lastFrameFile;
+    }
+    // Rebuild from the clip itself: from R2, or straight from the provider's CDN link. Only generated clips: the
+    // intro is committed media with its own keyframe (INTRO_LAST_FRAME), and a rebuild would write into the repo.
+    const url = node.clipUrl;
+    if (!url || !(isGeneratedUrl(url) || /^https?:/.test(url))) return null;
+    let clip: string | null = null;
+    /** Set when the clip was downloaded just for this: deleted again once the frame is out. */
+    let temporary = false;
+    if (r2Enabled() && isGeneratedUrl(url)) {
+      const key = keyForMediaUrl(url);
+      if (key && (await objectExists(key))) {
+        clip = await fetchTo(key, CACHE_DIR);
+        temporary = true;
+      }
+    } else if (/^https?:/.test(url)) {
+      clip = `${CACHE_DIR}/rebuild-${node.id}.mp4`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
+      if (!res.ok) return null;
+      await Bun.write(clip, await res.arrayBuffer());
+      temporary = true;
+    } else {
+      const local = mediaPath(url);
+      if (local && existsSync(local)) clip = local;
+    }
+    if (!clip) return null;
+    try {
+      node.lastFrameFile = await lastFrame(clip);
+    } finally {
+      // Only the frame is needed; a whole clip left behind per rebuild would slowly fill the disk.
+      if (temporary) rmSync(clip, { force: true });
+    }
+    await keepFrame(node.lastFrameFile);
+    putNode(node);
+    logEvent({ kind: "job", label: "last frame rebuilt from clip", response: { nodeId: node.id, clipUrl: url } });
+    return node.lastFrameFile;
+  } catch (err) {
+    logEvent({ kind: "error", label: "no continuity frame", status: "error", response: { nodeId: node.id, error: String(err) } });
+    return null;
+  }
+}
+
 /** Local image file a Masky clip should open on: the previous clip's last frame, or the intro's keyframe. */
-function firstFrameFor(from: StoryNode) {
-  if (from.lastFrameFile) return from.lastFrameFile;
+async function firstFrameFor(from: StoryNode) {
+  const frame = await ensureLastFrame(from);
+  if (frame) return frame;
   for (const candidate of [INTRO_LAST_FRAME, INTRO_LAST_FRAME_JPEG]) {
     if (existsSync(`${ROOT}${candidate}`)) return `${ROOT}${candidate}`;
   }
@@ -470,7 +679,8 @@ function firstFrameFor(from: StoryNode) {
  * The H3 client for a provider. MachGen and GMI take the same request and differ only in how references
  * are hosted (MachGen uploads, GMI fetches public URLs), which each module handles itself.
  */
-export const videoApi = (provider: VideoProvider) => (provider === "fal" ? falVideo : provider === "gmi" ? gmiVideo : machgen);
+export const videoApi = (provider: VideoProvider) =>
+  provider === "fal-turbo" ? falTurboVideo : provider === "fal" ? falVideo : provider === "gmi" ? gmiVideo : machgen;
 
 /**
  * Clips handed to the player as a provider CDN link are stored afterwards. Anything that needs the stored
@@ -493,26 +703,42 @@ export const whenFinalized = (nodeId: string) => finalizing.get(nodeId) ?? Promi
 
 export async function buildClipRequest(plan: ShotPlan, from: StoryNode, api: ReturnType<typeof videoApi> = machgen): Promise<VideoRequest> {
   const { uploadAsset, uploadFile } = api;
-  const previousFrame = from.lastFrameFile
-    ? await uploadFile(from.lastFrameFile)
+  const frameFile = await ensureLastFrame(from);
+  const previousFrame = frameFile
+    ? await uploadFile(frameFile).catch(err => {
+        logEvent({ kind: "error", label: "continuity frame not sent", status: "error", response: String(err) });
+        return null;
+      })
     : from.parentId === null && hasAsset(INTRO_LAST_FRAME)
       ? await uploadAsset(INTRO_LAST_FRAME)
       : null;
-  const { refs, cast } = selectReferences(plan, Boolean(previousFrame));
+  const { refs, cast } = selectReferences(plan, Boolean(previousFrame), from.environmentId);
   const durationSecs = STEP_SECS;
 
   if (refs.length + cast.length > 0) {
     // Order: environment, protagonist, previous frame (continuity), then ranked cast; max 9.
     const entries = [
-      ...refs.map(r => ({ label: r.label, ref: uploadAsset(r.image) })),
-      ...(previousFrame ? [{ label: "the previous shot's final frame (continuity)", ref: Promise.resolve(previousFrame) }] : []),
-      ...cast.map(r => ({ label: r.label, ref: uploadAsset(r.image) })),
+      ...refs.map(r => ({ ...r, ref: uploadAsset(r.image) })),
+      ...(previousFrame
+        ? [
+            {
+              label: "the previous shot's final frame (continuity)",
+              ref: Promise.resolve(previousFrame),
+              kind: "frame" as const,
+              sheetLabel: "PREVIOUS SHOT",
+              note: "where the last clip ended: continue from this moment",
+            },
+          ]
+        : []),
+      ...cast.map(r => ({ ...r, ref: uploadAsset(r.image) })),
     ].slice(0, MAX_IMAGE_REFS);
     const legend = entries.map((r, i) => `Image ${i + 1}: ${r.label}.`).join(" ");
     return {
       task_type: "R2V",
       prompt: `${legend}\n\n${plan.shotPrompt}`,
       src_image_urls: await Promise.all(entries.map(r => r.ref)),
+      refs: entries.map(({ kind, sheetLabel, note }) => ({ kind, sheetLabel, note })),
+      shotPrompt: plan.shotPrompt,
       durationSecs,
     };
   }
@@ -598,4 +824,68 @@ function mockPlan(from: StoryNode, beat: string, outcome: Outcome): ShotPlan {
     summary: `[mock] ${beat} (now in ${next})`,
     loopPrompt: "[mock] close-up idle loop",
   };
+}
+
+// ---------- Admin: regenerate an archived clip ----------
+
+export type Regeneration = { status: "running" | "done" | "error"; provider: VideoProvider; startedAt: string; finishedAt?: string; error?: string; costUsd?: number };
+/** In-memory only: a regeneration is minutes of work at most, and the archive row itself is the durable result. */
+const regenerations = new Map<number, Regeneration>();
+export const regenerationStatus = (id: number) => regenerations.get(id);
+
+/**
+ * Re-shoots an archived action from its stored shot list with the chosen video provider, then points the archive
+ * row at the new clip (the old video is deleted once nothing else refers to it). The verdict, outcome, destination
+ * and summary stay as they were: this replaces the footage, not the decision. Spends that provider's credits.
+ */
+export function regenerateArchived(id: number, provider: VideoProvider) {
+  const row = getArchived(id);
+  if (!row) throw new Error("No such archive entry");
+  if (row.outcome === "rejected" || !row.clip_url) throw new Error("Rejected actions have no clip to regenerate");
+  if (provider === "masky") throw new Error("Masky can't regenerate archived clips (it needs a first frame, not references)");
+  if (regenerations.get(id)?.status === "running") throw new Error("Already regenerating");
+  const job: Regeneration = { status: "running", provider, startedAt: new Date().toISOString() };
+  regenerations.set(id, job);
+
+  void jobContext.run({ jobId: `regenerate-${id}` }, async () => {
+    try {
+      const characterIds: string[] = row.character_ids ? JSON.parse(row.character_ids) : ["protagonist"];
+      const plan: ShotPlan = {
+        shotPrompt: row.shot_prompt,
+        environmentId: row.to_environment_id,
+        characterIds,
+        summary: row.summary,
+        loopPrompt: "",
+      };
+      // Where the original clip started. No previous shot to continue from: an archived clip is reused from many
+      // different stories, so it should stand on its own.
+      const start: StoryNode = {
+        id: `archive-${id}`,
+        parentId: "archive",
+        depth: 0,
+        environmentId: row.environment_id,
+        direction: row.direction,
+        outcome: row.outcome as Outcome,
+        summary: row.summary,
+        clipUrl: null,
+        loopUrl: null,
+      };
+      const api = videoApi(provider);
+      const clip = await api.generateVideo(await buildClipRequest(plan, start, api));
+      const local = "finalize" in clip ? await clip.finalize() : { file: clip.file, url: clip.url };
+      const frame = await lastFrame(local.file);
+      await keepFrame(frame);
+      await releaseLocalCopy(local.file, local.url);
+      job.costUsd = "creditCost" in clip ? (clip as { creditCost?: number }).creditCost : undefined;
+      replaceArchivedClip(id, { clipUrl: local.url, lastFrameFile: frame, provider, costUsd: job.costUsd });
+      job.status = "done";
+    } catch (err) {
+      job.status = "error";
+      job.error = String((err as Error)?.message ?? err);
+      logEvent({ kind: "error", label: "archive regeneration failed", status: "error", response: { id, provider, error: job.error } });
+    } finally {
+      job.finishedAt = new Date().toISOString();
+    }
+  });
+  return job;
 }

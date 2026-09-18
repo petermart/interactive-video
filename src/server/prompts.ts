@@ -28,6 +28,7 @@ REJECT (allowed=false) any direction that:
 - controls things outside the protagonist's own agency (a portal opens, guards decide to free him, an earthquake hits, another character spontaneously helps without being persuaded),
 - is off-topic or not suitable for a public audience.
 The protagonist CAN act on the world: talk, persuade, bribe, trick, sneak, fight, craft tools, use objects that plausibly exist in the current environment, or move to a neighboring environment.
+Going along with the normal prison day is ALWAYS allowed, even from a locked cell: waiting for meal time, yard time, showers, work duty, library hours, chapel, visitation, sick call or evening count. At those times the guards escort the inmates there, so it moves him to that place even if it is not a neighboring environment.
 rejectionReason must be one short, friendly, in-world sentence telling the viewer why and nudging them to try again.
 
 If allowed, write intentKey: a canonical, lowercase "verb:tool:target:destination" summary of the attempt, using
@@ -42,6 +43,9 @@ verdictReason: one short sentence explaining the verdict (for the admin panel).
 
 Then write BOTH possible outcomes (the game plays whichever one is chosen):
 - successBeat: what happens when it works, advancing him toward an exit. Respect environment adjacency.
+  If successEscapesPrison is true in the input, success on this step ENDS THE GAME: successBeat must be the full
+  escape, using his idea to get from the current environment all the way out of the prison (past the last wall,
+  fence, gate, roof or drain, whatever fits), ending outside the walls, free. Make the idea the key that gets him out.
 - failBeat: how it goes wrong, ending with him re-detained OR dead (failType). Keep it dramatic, not gory.
 reachesExit: true only if success would plausibly take him fully out of the prison from here.
 
@@ -58,13 +62,17 @@ Rules:
 - Structure shotPrompt as a numbered shot list with timestamps, e.g. "Shot 1 (0-3s, wide, slow push): ...".
 - Use a variety of shot types (wide / medium / close-up / macro); never the same type twice in a row. Name the camera movement.
 - Follow the style bible and shot rules exactly.
-- environmentId is REQUIRED: the current environment or one of its neighbors. Its reference image is always attached.
+- environmentId is REQUIRED: where the protagonist IS AT THE END of this clip, i.e. his location for the next step. It must agree with the summary: if he gets out of the current environment, it is the neighbor he ends up in; if he stays put, or is caught where he is, it is the current environment. Only the current environment or one of its neighbors (anything else keeps him where he is). The reference images of the starting environment, and of the destination when it differs, are attached.
+- scheduledMove: true ONLY when he gets to environmentId by going along with the normal prison day (escorted with the other inmates to meals, yard time, showers, work duty, library, chapel, visitation, sick call, or back to the cells for count). Such a move may go to that place even when it is not a neighbor. Otherwise false.
 - characterIds: everyone on screen, ranked by importance (protagonist first). At most 7 ids; only the top ones get reference images.
 - Keep continuity with the story so far and the current environment. Only move to a neighboring environment.
 - Describe characters by their visual description, never just by id. The protagonist always wears the RED jumpsuit.
 - For a SUCCESS that is not the final escape, the LAST shot must be a close-up of the protagonist's face (tense, determined) so the game can loop on it.
 - For a FAILURE, end on the consequence (tackled and cuffed / collapsed), no close-up requirement.
-- For the FINAL ESCAPE, end on a triumphant wide shot outside the prison.
+- For the FINAL ESCAPE, the clip must show him actually leaving the prison: from the current environment, through
+  or past the last barrier (wall, fence, gate, roof, drain, vehicle; see EXIT CANDIDATES), and out. If the beat stops
+  short of the outside, carry it on until he is out. End on a triumphant wide shot outside the prison, free, the
+  walls behind him. environmentId is then the exit he leaves through (one of the EXIT CANDIDATES).
 - shotPrompt max 2500 characters. Plain visual language, no dialogue text on screen.
 - shotPrompt must end with a sound line: punchy sound effects and foley matched to the action in each shot (footsteps, impacts, metal clanks, alarms, breathing), followed by "No music." (the website plays its own soundtrack).
 - loopPrompt is a silent visual loop: it must include "No music, no sound effects, no foley."
@@ -73,4 +81,4 @@ Rules:
 ${bible()}
 
 Respond with JSON only:
-{"shotPrompt":string,"environmentId":string,"characterIds":string[],"summary":string,"loopPrompt":string}`;
+{"shotPrompt":string,"environmentId":string,"scheduledMove":boolean,"characterIds":string[],"summary":string,"loopPrompt":string}`;

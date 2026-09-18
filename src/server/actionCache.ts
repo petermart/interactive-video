@@ -42,6 +42,12 @@ try {
 } catch {
   // column already exists
 }
+// Who was on screen (JSON array of character ids), so an admin can regenerate a clip with the same references.
+try {
+  db.exec(`ALTER TABLE action_clips ADD COLUMN character_ids TEXT`);
+} catch {
+  // column already exists
+}
 db.exec(`CREATE INDEX IF NOT EXISTS action_clips_intent ON action_clips(environment_id, outcome, intent_key)`);
 db.exec(`CREATE INDEX IF NOT EXISTS action_clips_env ON action_clips(environment_id)`);
 
@@ -246,8 +252,8 @@ export async function findReusableClip(opts: {
 }
 
 const insert = db.prepare(
-  `INSERT INTO action_clips (environment_id, outcome, direction, intent_key, keywords, summary, shot_prompt, to_environment_id, fail_type, clip_url, last_frame_file, provider, cost_usd, rejection_reason)
-   VALUES ($env, $outcome, $direction, $intent, $keywords, $summary, $shot, $to_env, $fail, $clip, $frame, $provider, $cost, $reason)`,
+  `INSERT INTO action_clips (environment_id, outcome, direction, intent_key, keywords, summary, shot_prompt, to_environment_id, fail_type, clip_url, last_frame_file, provider, cost_usd, rejection_reason, character_ids)
+   VALUES ($env, $outcome, $direction, $intent, $keywords, $summary, $shot, $to_env, $fail, $clip, $frame, $provider, $cost, $reason, $chars)`,
 );
 
 /** Saves a freshly generated clip so the next viewer attempting the same thing here reuses it. */
@@ -265,6 +271,7 @@ export function rememberClip(c: {
   provider: string;
   costUsd?: number;
   rejectionReason?: string | null;
+  characterIds?: string[];
 }) {
   insert.run({
     $env: c.environmentId,
@@ -281,6 +288,7 @@ export function rememberClip(c: {
     $frame: c.lastFrameFile ?? null,
     $provider: c.provider,
     $cost: c.costUsd ?? null,
+    $chars: c.characterIds?.length ? JSON.stringify(c.characterIds) : null,
   });
   prune(c.environmentId, c.outcome);
   scheduleArchiveBackup();
@@ -315,6 +323,119 @@ function prune(environmentId: string, outcome: Outcome | "rejected") {
     void discardClip(clip_url);
   }
   logEvent({ kind: "job", label: `archive pruned (${doomed.length})`, response: { environmentId, outcome, keep: MAX_PER_LOCATION } });
+}
+
+// ---------- Admin: browse, delete and replace archived clips ----------
+
+export type ArchiveRow = {
+  id: number;
+  created_at: string;
+  environment_id: string;
+  outcome: Outcome | "rejected";
+  direction: string;
+  intent_key: string | null;
+  summary: string;
+  shot_prompt: string;
+  to_environment_id: string;
+  fail_type: string | null;
+  clip_url: string;
+  last_frame_file: string | null;
+  provider: string;
+  cost_usd: number | null;
+  uses: number;
+  rejection_reason: string | null;
+  character_ids: string | null;
+};
+
+const ADMIN_COLUMNS = `id, created_at, environment_id, outcome, direction, intent_key, summary, shot_prompt, to_environment_id,
+  fail_type, clip_url, last_frame_file, provider, cost_usd, uses, rejection_reason, character_ids`;
+
+/** Every archived action, newest first. */
+export const listArchive = () => db.query<ArchiveRow, []>(`SELECT ${ADMIN_COLUMNS} FROM action_clips ORDER BY id DESC`).all();
+
+export const getArchived = (id: number) => db.query<ArchiveRow, [number]>(`SELECT ${ADMIN_COLUMNS} FROM action_clips WHERE id = ?`).get(id);
+
+/** Deletes a clip's stored video, unless another archive row still points at the same file. */
+function releaseClip(clipUrl: string) {
+  if (!clipUrl) return;
+  const n = db.query<{ n: number }, [string]>(`SELECT COUNT(*) AS n FROM action_clips WHERE clip_url = ?`).get(clipUrl)?.n ?? 0;
+  if (n === 0) void discardClip(clipUrl);
+}
+
+/** Removes an archived action, and its video with it. Returns false when there was no such row. */
+export function deleteArchived(id: number) {
+  const row = getArchived(id);
+  if (!row) return false;
+  db.query(`DELETE FROM action_clips WHERE id = ?`).run(id);
+  releaseClip(row.clip_url);
+  scheduleArchiveBackup();
+  logEvent({ kind: "job", label: "archive entry deleted (admin)", response: { id, direction: row.direction, clipUrl: row.clip_url } });
+  return true;
+}
+
+export type ArchiveEdit = Partial<{
+  outcome: ArchiveRow["outcome"];
+  fail_type: "redetained" | "dead" | null;
+  to_environment_id: string;
+  summary: string;
+  shot_prompt: string;
+  rejection_reason: string | null;
+}>;
+
+const OUTCOMES = new Set(["success", "escaped", "fail", "rejected"]);
+
+/**
+ * Hand-edits an archived action: what the next player who tries it will be told happened, and the shot list a
+ * regeneration will film. Validates every field and returns the updated row, or an error string.
+ */
+export function updateArchived(id: number, edit: ArchiveEdit, knownEnvironments: string[]): ArchiveRow | string {
+  const row = getArchived(id);
+  if (!row) return "No such archive entry";
+  const next = { ...row };
+  if (edit.outcome !== undefined) {
+    if (!OUTCOMES.has(edit.outcome)) return "Unknown outcome";
+    next.outcome = edit.outcome;
+  }
+  if (edit.fail_type !== undefined) {
+    if (edit.fail_type !== null && edit.fail_type !== "redetained" && edit.fail_type !== "dead") return "Fail type must be redetained or dead";
+    next.fail_type = edit.fail_type;
+  }
+  if (next.outcome !== "fail") next.fail_type = null;
+  else if (!next.fail_type) next.fail_type = "redetained";
+  if (edit.to_environment_id !== undefined) {
+    if (!knownEnvironments.includes(edit.to_environment_id)) return "Unknown location";
+    next.to_environment_id = edit.to_environment_id;
+  }
+  for (const [field, max] of [["summary", 2000], ["shot_prompt", 7000], ["rejection_reason", 1000]] as const) {
+    const value = edit[field];
+    if (value === undefined) continue;
+    if (value !== null && typeof value !== "string") return `${field} must be text`;
+    if ((value ?? "").length > max) return `${field} is too long (max ${max} characters)`;
+    (next as Record<string, unknown>)[field] = value === null ? null : value.trim();
+  }
+  db.query(
+    `UPDATE action_clips SET outcome = ?, fail_type = ?, to_environment_id = ?, summary = ?, shot_prompt = ?, rejection_reason = ? WHERE id = ?`,
+  ).run(next.outcome, next.fail_type, next.to_environment_id, next.summary, next.shot_prompt, next.rejection_reason, id);
+  scheduleArchiveBackup();
+  logEvent({ kind: "job", label: "archive entry edited (admin)", response: { id, fields: Object.keys(edit) } });
+  return getArchived(id)!;
+}
+
+/** Points an archived action at a newly generated clip, deleting the old video once nothing refers to it. */
+export function replaceArchivedClip(id: number, c: { clipUrl: string; lastFrameFile: string | null; provider: string; costUsd?: number }) {
+  const row = getArchived(id);
+  if (!row) return false;
+  db.query(`UPDATE action_clips SET clip_url = ?, last_frame_file = ?, provider = ?, cost_usd = ? WHERE id = ?`).run(
+    c.clipUrl,
+    c.lastFrameFile,
+    c.provider,
+    c.costUsd ?? null,
+    id,
+  );
+  if (row.clip_url !== c.clipUrl) releaseClip(row.clip_url);
+  scheduleArchiveBackup();
+  logEvent({ kind: "job", label: "archive clip regenerated (admin)", response: { id, provider: c.provider, old: row.clip_url, new: c.clipUrl } });
+  return true;
 }
 
 /** Removes one clip's bytes from wherever it is kept: R2 in deployment, the cache directory locally. */

@@ -5,6 +5,7 @@ import { AdminCredits, useAdminPassword } from "./AdminCredits";
 import { api, type Job, type Settings, type SettingsView } from "./api";
 
 const PROVIDER_HELP: Record<VideoProvider, string> = {
+  "fal-turbo": "MiniMax H3 Max turbo 480P on fal. References go in as one labeled first frame that is cut off. ~$0.19 per 15s step until Sept 30, ~$0.38 after. ~4s per clip.",
   fal: "MiniMax H3 Max 480P on fal.ai, 9 reference images, ~$0.75 per 15s step. Fastest: ~9s per clip, and the clip starts playing before it is stored.",
   gmi: "MiniMax H3 768P on GMI Cloud, 9 reference images, ~$1.20 per 15s step (GMI has no 480p).",
   machgen: "MiniMax H3 480p, 9 reference images, ~$0.75 per 15s step.",
@@ -83,6 +84,19 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
           )}
           <AdminCredits />
           {/* Everything past the password field is operator-only: hidden, not just disabled, until unlocked. */}
+          {password && (
+            <button
+              onClick={async () => {
+                // The archive page is server-rendered and checks a session cookie, so trade the password for one first.
+                const tab = window.open("", "_blank");
+                const res = await fetch("/api/admin/session", { method: "POST", body: JSON.stringify({ password }) });
+                if (tab) tab.location.href = res.ok ? "/admin/archive" : "/admin";
+              }}
+              className="mb-3 w-full rounded border border-teal/50 px-2 py-1.5 text-left text-xs text-teal hover:bg-teal/10"
+            >
+              Action archive manager ↗
+            </button>
+          )}
           {password && <AdminAuth />}
 
           {saveError && <div className="mb-3 rounded border border-siren-red/50 bg-siren-red/10 p-2 text-xs text-siren-red">{saveError}</div>}

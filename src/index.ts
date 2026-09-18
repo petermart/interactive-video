@@ -2,7 +2,7 @@ import { serve } from "bun";
 import { existsSync } from "node:fs";
 import index from "./index.html";
 import { aboutPage } from "./server/about";
-import { CACHE_DIR, EXPORT_DIR, FRAMES_DIR, getSettings, maskyAvailable, MEDIA_DIR, providerAvailable, publicBaseUrl, ROOT, updateSettings } from "./server/config";
+import { CACHE_DIR, EXPORT_DIR, FRAMES_DIR, getSettings, maskyAvailable, MEDIA_DIR, providerAvailable, publicBaseUrl, ROOT, updateSettings, world } from "./server/config";
 import { VIDEO_PROVIDERS } from "./server/constants";
 import { checkAdminPassword, creditsReport, MACHGEN_MIN_BALANCE_USD, videoGenerationAllowed } from "./server/credits";
 import { jobContext, jobEvents, looseEvents, recentJobs } from "./server/db";
@@ -19,6 +19,12 @@ import { migrateOnBootIfRequested } from "./server/migrateVolume";
 import { startRetention } from "./server/retention";
 import { startArchiveBackups } from "./server/archiveBackup";
 import { tagJobOwner, usageReport } from "./server/usage";
+import { deleteArchived, getArchived, listArchive, updateArchived } from "./server/actionCache";
+import { adminArchivePage, adminLoginPage } from "./server/adminPages";
+import { adminCookie, clearAdminCookie, isAdmin, verifyAdminPassword } from "./server/adminSession";
+import { falTurboUsdPerSec } from "./server/falTurboVideo";
+import { regenerateArchived, regenerationStatus } from "./server/pipeline";
+import type { VideoProvider } from "./server/constants";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The per-browser-session viewer UUID sent by the client, if valid. */
@@ -69,6 +75,20 @@ function generatedFrom(base: string, prefix: string) {
  * that has no buttons, locking the public out of the game. The admin panel warns about this instead.
  */
 const effectivePolicy = () => (authEnabled() ? getSettings().guestPolicy : "unlimited");
+
+const html = (body: string, status = 200) =>
+  new Response(body, { status, headers: { "content-type": "text/html;charset=utf-8", "cache-control": "no-store" } });
+const redirect = (to: string, headers: Record<string, string> = {}) => new Response(null, { status: 303, headers: { location: to, ...headers } });
+const unauthorized = () => Response.json({ error: "Admin sign-in required" }, { status: 401 });
+
+/** Providers the archive page can regenerate with (Masky can't: it needs a first frame), with a rough 15s price. */
+const regenerationProviders = () =>
+  availableProviders()
+    .filter(p => p !== "masky")
+    .map(id => ({
+      id,
+      price: id === "fal-turbo" ? `~$${(15 * falTurboUsdPerSec()).toFixed(2)}` : id === "gmi" ? "~$1.20" : "~$0.75",
+    }));
 
 /** Video providers that have an API key here, in preference order: the only ones the admin panel offers. */
 const availableProviders = () => VIDEO_PROVIDERS.filter(providerAvailable);
@@ -222,6 +242,60 @@ const server = serve({
 
     // Credits and context: what this is, where it was built, and a way into the source.
     "/about": () => new Response(aboutPage(), { headers: { "content-type": "text/html;charset=utf-8" } }),
+
+    // ---------- Admin pages: signed-in admins only (adminSession.ts). The URL alone gets a login form. ----------
+    "/admin": req => (isAdmin(req) ? redirect("/admin/archive") : html(adminLoginPage())),
+    "/admin/login": {
+      POST: async req => {
+        const form = await req.formData().catch(() => null);
+        if (!(await verifyAdminPassword(form?.get("password")))) return html(adminLoginPage("Wrong password."), 401);
+        return redirect("/admin/archive", { "set-cookie": adminCookie(req) });
+      },
+    },
+    "/admin/logout": { POST: req => redirect("/admin", { "set-cookie": clearAdminCookie(req) }) },
+    "/admin/archive": req =>
+      isAdmin(req) ? html(adminArchivePage(regenerationProviders(), world.environments.map(e => e.id))) : redirect("/admin"),
+
+    // Lets the in-game admin panel open the archive page without a second login: it already has the password.
+    "/api/admin/session": {
+      POST: async req => {
+        const { password } = await req.json().catch(() => ({}));
+        if (!(await verifyAdminPassword(password))) return Response.json({ error: "Wrong password" }, { status: 401 });
+        return Response.json({ ok: true }, { headers: { "set-cookie": adminCookie(req) } });
+      },
+    },
+    "/api/admin/archive": req => (isAdmin(req) ? Response.json({ rows: listArchive() }) : unauthorized()),
+    "/api/admin/archive/:id": {
+      GET: req => {
+        if (!isAdmin(req)) return unauthorized();
+        const id = Number(req.params.id);
+        const row = getArchived(id);
+        return row ? Response.json({ row, regeneration: regenerationStatus(id) ?? null }) : Response.json({ error: "Not found" }, { status: 404 });
+      },
+      DELETE: req => {
+        if (!isAdmin(req)) return unauthorized();
+        return deleteArchived(Number(req.params.id)) ? Response.json({ ok: true }) : Response.json({ error: "Not found" }, { status: 404 });
+      },
+      PATCH: async req => {
+        if (!isAdmin(req)) return unauthorized();
+        const edit = await req.json().catch(() => null);
+        if (!edit || typeof edit !== "object") return Response.json({ error: "Expected a JSON object" }, { status: 400 });
+        const result = updateArchived(Number(req.params.id), edit, world.environments.map(e => e.id));
+        return typeof result === "string" ? Response.json({ error: result }, { status: 400 }) : Response.json({ row: result });
+      },
+    },
+    "/api/admin/archive/:id/regenerate": {
+      POST: async req => {
+        if (!isAdmin(req)) return unauthorized();
+        const { provider } = await req.json().catch(() => ({}));
+        if (!regenerationProviders().some(p => p.id === provider)) return Response.json({ error: "That provider isn't available here" }, { status: 400 });
+        try {
+          return Response.json(regenerateArchived(Number(req.params.id), provider as VideoProvider));
+        } catch (err) {
+          return Response.json({ error: String((err as Error)?.message ?? err) }, { status: 400 });
+        }
+      },
+    },
 
     // Public share page for one ending: the card social platforms scrape, plus a player.
     "/s/:id": async req => {
