@@ -56,7 +56,7 @@ export const maskyAvailable = () => Boolean(keys.masky);
 
 /** A video provider can only be used when its API key is present. */
 export const providerAvailable = (provider: VideoProvider) =>
-  Boolean({ "fal-turbo": keys.fal, fal: keys.fal, machgen: keys.machgen, gmi: keys.gmi, masky: keys.masky }[provider]);
+  Boolean({ "fal-turbo": keys.fal, "fal-turbo-half": keys.fal, fal: keys.fal, machgen: keys.machgen, gmi: keys.gmi, masky: keys.masky }[provider]);
 
 /**
  * Default video provider: the first one with a key, in order of preference. fal turbo (H3 Max turbo with a

@@ -4,8 +4,18 @@ import { AdminAuth } from "./AdminAuth";
 import { AdminCredits, useAdminPassword } from "./AdminCredits";
 import { api, type Job, type Settings, type SettingsView } from "./api";
 
+const PROVIDER_LABELS: Record<VideoProvider, string> = {
+  "fal-turbo": "fal Turbo (H3 Max turbo)",
+  "fal-turbo-half": "fal Turbo Half (8s at 2x, played at 0.65x)",
+  fal: "fal (H3 Max, real references)",
+  machgen: "MachGen (H3 480p)",
+  gmi: "GMI Cloud (H3 768P)",
+  masky: "Masky",
+};
+
 const PROVIDER_HELP: Record<VideoProvider, string> = {
   "fal-turbo": "MiniMax H3 Max turbo 480P on fal. References go in as one labeled first frame that is cut off. ~$0.19 per 15s step until Sept 30, ~$0.38 after. ~4s per clip.",
+  "fal-turbo-half": "Turbo Half: 8s generated as a 2x fast-forward, played at 0.65x (~12s clip, ~15.6 real fps, no interpolation). ~$0.10 per step until Sept 30, ~$0.20 after.",
   fal: "MiniMax H3 Max 480P on fal.ai, 9 reference images, ~$0.75 per 15s step. Fastest: ~9s per clip, and the clip starts playing before it is stored.",
   gmi: "MiniMax H3 768P on GMI Cloud, 9 reference images, ~$1.20 per 15s step (GMI has no 480p).",
   machgen: "MiniMax H3 480p, 9 reference images, ~$0.75 per 15s step.",
@@ -203,23 +213,18 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
             />
             <div>
               <div className="text-white/70">Video provider</div>
-              {/* Only providers with an API key on this server; the order is the order of preference. */}
-              <div
-                className="mt-1 grid overflow-hidden rounded border border-white/15"
-                style={{ gridTemplateColumns: `repeat(${(settings.availableProviders ?? VIDEO_PROVIDERS).length}, minmax(0, 1fr))` }}
+              {/* A dropdown: only providers with an API key on this server, in order of preference. */}
+              <select
+                value={settings.videoProvider}
+                onChange={e => save({ videoProvider: e.target.value as VideoProvider })}
+                className="mt-1 w-full rounded border border-white/15 bg-black px-2 py-1.5 text-white"
               >
                 {(settings.availableProviders ?? VIDEO_PROVIDERS).map(provider => (
-                  <button
-                    key={provider}
-                    onClick={() => save({ videoProvider: provider })}
-                    className={`py-1.5 text-xs uppercase tracking-widest transition ${
-                      settings.videoProvider === provider ? "bg-teal font-semibold text-black" : "text-white/60 hover:bg-white/10"
-                    }`}
-                  >
-                    {provider}
-                  </button>
+                  <option key={provider} value={provider}>
+                    {PROVIDER_LABELS[provider]}
+                  </option>
                 ))}
-              </div>
+              </select>
               <p className="mt-1 text-xs text-white/40">{PROVIDER_HELP[settings.videoProvider]}</p>
             </div>
             {settings.maskyAvailable && settings.videoProvider === "masky" && (

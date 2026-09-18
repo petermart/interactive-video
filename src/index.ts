@@ -87,7 +87,11 @@ const regenerationProviders = () =>
     .filter(p => p !== "masky")
     .map(id => ({
       id,
-      price: id === "fal-turbo" ? `~$${(15 * falTurboUsdPerSec()).toFixed(2)}` : id === "gmi" ? "~$1.20" : "~$0.75",
+      price:
+        id === "fal-turbo" ? `~$${(15 * falTurboUsdPerSec()).toFixed(2)}`
+        : id === "fal-turbo-half" ? `~$${(8 * falTurboUsdPerSec()).toFixed(2)}`
+        : id === "gmi" ? "~$1.20"
+        : "~$0.75",
     }));
 
 /** Video providers that have an API key here, in preference order: the only ones the admin panel offers. */

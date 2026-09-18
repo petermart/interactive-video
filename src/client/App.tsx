@@ -166,10 +166,23 @@ export function App() {
    * `startAt` skips the opening of a clip that begins on a reference sheet (fal turbo). It is only non-zero while
    * the node still points at fal's link: the stored copy is trimmed, so replays, stitched films and shares start clean.
    */
-  const playVideo = (src: string | null, loop: boolean, startAt = 0) => {
+  const playVideo = (src: string | null, loop: boolean, startAt = 0, rate = 1) => {
     const v = videoRef.current;
     if (!v || !src) return;
     v.loop = loop;
+    // Turbo Half streams its 2x-speed provider clip at 0.5 until the slowed copy exists; everything else plays at 1.
+    // Set both, because loading a new source resets playbackRate to defaultPlaybackRate.
+    v.defaultPlaybackRate = rate;
+    v.playbackRate = rate;
+    if (rate !== 1) {
+      // Some browsers (older Safari especially) reset the rate when the new source loads or starts playing;
+      // put it back at both points so a half-speed clip can never slip into playing at full speed.
+      const keepRate = () => {
+        if (v.playbackRate !== rate) v.playbackRate = rate;
+      };
+      v.addEventListener("loadedmetadata", keepRate, { once: true });
+      v.addEventListener("playing", keepRate, { once: true });
+    }
     // The #t= media fragment makes the browser start there before painting anything; the seek below backs it up.
     v.src = startAt > 0 ? `${src}#t=${startAt}` : src;
     if (startAt > 0) {
@@ -208,7 +221,7 @@ export function App() {
     setPlaying(node);
     setPhase("intro");
     // The intro is a seamless loop that doubles as the idle loop, so keep it looping while the viewer types.
-    playVideo(node.clipUrl, node.loopUrl === node.clipUrl, node.clipStartSecs);
+    playVideo(node.clipUrl, node.loopUrl === node.clipUrl, node.clipStartSecs, node.clipPlaybackRate);
   };
 
   const goIdle = (node: StoryNode) => {
@@ -226,7 +239,7 @@ export function App() {
     if (!playing || playing.outcome === "intro") return;
     if (playing.clipUrl) {
       setPhase("clip");
-      playVideo(playing.clipUrl, false, playing.clipStartSecs);
+      playVideo(playing.clipUrl, false, playing.clipStartSecs, playing.clipPlaybackRate);
     } else if (playing.scene) {
       setPhase("scene");
     }
@@ -301,7 +314,7 @@ export function App() {
           setPlaying(job.node);
           if (job.node.clipUrl) {
             setPhase("clip");
-            playVideo(job.node.clipUrl, false, job.node.clipStartSecs);
+            playVideo(job.node.clipUrl, false, job.node.clipStartSecs, job.node.clipPlaybackRate);
           } else {
             setPhase("scene");
           }

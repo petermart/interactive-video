@@ -133,6 +133,7 @@ variables in `.env` on the machine you run them from.
 | Provider | Model | Resolution | 15s step | Submit → saved |
 |---|---|---|---|---|
 | **fal-turbo** (default) | MiniMax H3 Max **turbo** + reference sheet | 480P | **$0.19** until Sept 30, $0.375 after | **4.4s** |
+| **fal-turbo-half** | Turbo, 8s generated as a 2x fast-forward, played at 0.65x (~12s clip) | 480P, ~15.6 real fps | **$0.10** until Sept 30, $0.20 after | ~4s |
 | **fal** | MiniMax H3 **Max** | 480P | $0.75 (+~$0.02 refs) | 9.2s |
 | MachGen | MiniMax H3 | 480p | $0.75 R2V / $0.525 I2V | 13-30s |
 | GMI Cloud | MiniMax H3 | 768P minimum | $1.20 | ~274s |
@@ -146,6 +147,13 @@ variables in `.env` on the machine you run them from.
   stitching and share exports only ever contain the trimmed clip. Only turbo reference-sheet clips are trimmed;
   every other provider's clips (and turbo's idle loops, which open on a real frame) are stored as generated. The
   Docker image installs `fonts-dejavu-core` for the sheet labels.
+- **fal-turbo-half** (experimental, pick it in the admin panel's *Video provider* dropdown) generates 8s instead of
+  15, prompted as a 2x fast-forward animated "on ones", and plays it at 0.65x (half speed looked sluggish; the model
+  under-delivers on "2x"): every frame shown is a real generated frame (~15.6 fps), nothing is interpolated, and the
+  clip runs ~12s. `HALF_PLAYBACK_RATE` in falTurboVideo.ts sets it. The player streams fal's clip at that rate from 0.25s
+  (the sheet is cut in the clip's own time); the stored copy is re-encoded at the same speed with the audio slowed to
+  match (pitch kept) and replaces the link, so replays, stitched films (which play it at 24 fps) and
+  shares match what the player saw. Idle loops still generate at normal speed.
 - **fal** sends reference images inline (1024px JPEG data URIs, built once per server run), so nothing is uploaded first.
   They are kept at 1024px because fal bills references above 4,096 tokens; nine 1600px sheets would add ~$0.17 a step.
   Prompt expansion is disabled. fal has no balance API, so the $10 auto-pause does not apply to it: watch the fal

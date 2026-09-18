@@ -5,7 +5,7 @@
   "promptsTillSuccess": 3,
   "liveLLM": true,
   "liveVideo": true,
-  "videoProvider": "fal",
+  "videoProvider": "fal-turbo-half",
   "maskyDraft": true,
   "constantThink": true,
   "reuseActions": true,

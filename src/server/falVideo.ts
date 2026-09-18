@@ -121,25 +121,32 @@ export async function runFal(endpoint: string, input: Record<string, unknown>) {
  * archive, film stitching and share exports all see the clean clip and a trimmed provider costs no extra storage.
  * Safe to call more than once.
  */
-export function clipFinalizer(remoteUrl: string, id: string, trimSecs = 0) {
+export function clipFinalizer(remoteUrl: string, id: string, trimSecs = 0, slowdown = 1) {
   let finalizing: Promise<{ file: string; url: string }> | undefined;
   return () =>
     (finalizing ??= (async () => {
       mkdirSync(CACHE_DIR, { recursive: true });
       const file = `${CACHE_DIR}/${id}.mp4`;
-      const download = trimSecs > 0 ? `${CACHE_DIR}/${id}-untrimmed.mp4` : file;
+      const reencode = trimSecs > 0 || slowdown !== 1;
+      const download = reencode ? `${CACHE_DIR}/${id}-untrimmed.mp4` : file;
       const bytes = await withRetry(`download ${id}`, async () => {
         const res = await fetch(remoteUrl, { signal: AbortSignal.timeout(120_000) });
         if (!res.ok) throw isRetryableStatus(res.status) ? new RetryableHttpError(`download ${res.status}`) : new Error(`download ${res.status}`);
         return res.arrayBuffer();
       });
       await Bun.write(download, bytes);
-      if (trimSecs > 0) {
+      if (reencode) {
         try {
           // Re-encoded rather than stream-copied: a copy can only cut on a keyframe, which would keep the sheet.
+          // `trimSecs` is in the clip's own (unslowed) time. A slowdown only stretches the timestamps (every frame
+          // is kept and shown longer, nothing is interpolated) and slows the audio to match, keeping its pitch.
+          const slow =
+            slowdown !== 1
+              ? ["-vf", `setpts=${slowdown.toFixed(4)}*PTS`, "-r", (24 / slowdown).toFixed(3), "-af", `atempo=${(1 / slowdown).toFixed(4)}`]
+              : [];
           const proc = Bun.spawn(
             [
-              "ffmpeg", "-v", "error", "-y", "-ss", String(trimSecs), "-i", download,
+              "ffmpeg", "-v", "error", "-y", "-ss", String(trimSecs), "-i", download, ...slow,
               "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-threads", "1",
               "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", file,
             ],

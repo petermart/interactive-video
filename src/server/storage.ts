@@ -181,19 +181,34 @@ export async function putBytes(key: string, bytes: ArrayBuffer | Uint8Array) {
   if (!client) return false;
   const size = bytes.byteLength;
   if (!allowUpload(key, size)) return false;
-  await client.write(key, bytes, { type: contentTypeOf(key) });
+  if (!(await tryWrite(key, () => client!.write(key, bytes, { type: contentTypeOf(key) })))) return false;
   recordObject(key, size);
   return true;
 }
 
-/** Uploads a file already on disk. Returns false when the cap is reached. */
+/** Uploads a file already on disk. Returns false when the cap is reached or R2 refuses the upload. */
 export async function putFile(key: string, localPath: string) {
   if (!client) return false;
   const size = Bun.file(localPath).size;
   if (!allowUpload(key, size)) return false;
-  await client.write(key, Bun.file(localPath), { type: contentTypeOf(key) });
+  if (!(await tryWrite(key, () => client!.write(key, Bun.file(localPath), { type: contentTypeOf(key) })))) return false;
   recordObject(key, size);
   return true;
+}
+
+/**
+ * Runs an upload, turning a refusal (e.g. a read-only key, or R2 briefly unreachable) into `false` rather than an
+ * exception. Callers already treat false as "keep the file on disk", and /media serves from disk when the object
+ * is missing, so a failed upload costs storage durability, not the step the player is waiting on.
+ */
+async function tryWrite(key: string, write: () => Promise<unknown>) {
+  try {
+    await write();
+    return true;
+  } catch (err) {
+    logEvent({ kind: "error", label: "R2 upload refused, keeping the file on disk", status: "error", response: { key, error: String(err) } });
+    return false;
+  }
 }
 
 /**

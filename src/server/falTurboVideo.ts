@@ -36,6 +36,28 @@ export const falTurboUsdPerSec = () => (Date.now() < PROMO_ENDS ? 0.0125 : 0.025
 export const SHEET_TRIM_SECS = 1;
 
 /**
+ * Turbo Half: generate half the length as a 2x fast-forward, then play it slowed down (HALF_PLAYBACK_RATE).
+ * Costs half, and every frame shown is a real generated frame; nothing is interpolated. The sheet cut is in the
+ * clip's own time: 0.25s of the fast clip is ~0.4s on screen, well past the sheet's one to four frames.
+ */
+export const HALF_SPEED = 2;
+/**
+ * How fast the 2x clip is played back. Half speed (0.5) looked sluggish: the model under-delivers on "2x", so
+ * 0.65 lands closer to natural motion. The clip comes out at 8s / 0.65 = ~12.3s, at 24 x 0.65 = 15.6 real
+ * frames per second (still nothing interpolated).
+ */
+export const HALF_PLAYBACK_RATE = 0.65;
+const HALF_SHEET_TRIM_SECS = 0.25;
+const HALF_SPEED_DIRECTIONS = [
+  "PLAYBACK SPEED: this entire video is a 2x FAST-FORWARD. Every movement, gesture, camera move and cut happens at",
+  "DOUBLE normal speed, as if sped up. It will be played back slowed down later, where it must look like normal",
+  "real-time motion. The shot list's timestamps are for normal speed: halve every one, so the whole list fits.",
+  "FRAME RATE: fully animated ON ONES at a true 24 frames per second. Every single frame is a new drawing with its own",
+  "in-between pose: no held frames, no repeated frames, no animating on twos. Motion is fluid and continuous from",
+  "frame to frame. Camera moves are perfectly smooth. Crisp frames, no motion blur smearing.",
+].join("\n");
+
+/**
  * Turbo needs local files, not URLs: the sheet is composed on this server. So "uploading" a repo asset just finds
  * (or makes, once) its 1600px JPEG, and a frame is used where it is.
  */
@@ -72,8 +94,11 @@ function sheetPreamble(placed: { sheetLabel: string; note: string }[]) {
  * Generates a clip on fal turbo and returns as soon as fal has it, like falVideo.generateVideo: `url` is the CDN
  * link (start it at `clipStartSecs`), `finalize()` stores a trimmed copy. Spends fal credits.
  */
-export async function generateVideo({ durationSecs, ...req }: VideoRequest) {
-  const duration = Math.min(15, Math.max(5, Math.round(durationSecs))); // turbo's minimum is 5s
+export async function generateVideo({ durationSecs, ...req }: VideoRequest, { halfSpeed = false } = {}) {
+  // Half speed only applies to sheet clips (normal steps). Idle loops open on a real frame and stay as they are.
+  const half = halfSpeed && req.task_type === "R2V";
+  const seconds = half ? Math.ceil(durationSecs / HALF_SPEED) : durationSecs;
+  const duration = Math.min(15, Math.max(5, Math.round(seconds))); // turbo's minimum is 5s
   const images = req.src_image_urls ?? [];
   let prompt = req.shotPrompt ?? req.prompt;
   if (!/no music/i.test(prompt)) prompt = `${prompt}\nNo music.`;
@@ -97,9 +122,9 @@ export async function generateVideo({ durationSecs, ...req }: VideoRequest) {
     } finally {
       rmSync(sheet, { force: true }); // one-off: nothing about a sheet is worth keeping on disk
     }
-    prompt = `${sheetPreamble([environment, ...others])}\n\n${prompt}`;
-    trimSecs = SHEET_TRIM_SECS;
-    mode = `sheet of ${1 + others.length}`;
+    prompt = `${sheetPreamble([environment, ...others])}\n\n${half ? `${HALF_SPEED_DIRECTIONS}\n\n` : ""}${prompt}`;
+    trimSecs = half ? HALF_SHEET_TRIM_SECS : SHEET_TRIM_SECS;
+    mode = `sheet of ${1 + others.length}${half ? `, played at ${HALF_PLAYBACK_RATE}x` : ""}`;
   } else if (req.task_type === "I2V" && images[0]) {
     // A real first frame (e.g. an idle loop opening on the last frame): nothing to trim.
     input.image_url = await toDataUri(images[0], `frame-${crypto.randomUUID()}.jpg`, { keep: false });
@@ -127,9 +152,11 @@ export async function generateVideo({ durationSecs, ...req }: VideoRequest) {
         taskId: id,
         url: remoteUrl,
         remote: true as const,
-        finalize: clipFinalizer(remoteUrl, id, trimSecs),
+        finalize: clipFinalizer(remoteUrl, id, trimSecs, half ? 1 / HALF_PLAYBACK_RATE : 1),
         creditCost: costUsd,
         clipStartSecs: trimSecs,
+        // The player streams fal's 2x clip slowed down until the slowed copy replaces it.
+        playbackRate: half ? HALF_PLAYBACK_RATE : 1,
       };
     },
     { costUsd, summarize: r => ({ taskId: r.taskId, url: r.url, clipStartSecs: r.clipStartSecs }) },

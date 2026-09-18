@@ -5,6 +5,7 @@ import { MIN_BALANCE_USD, videoGenerationAllowed } from "./credits";
 import { jobContext, loadJob, loadNode, logEvent, saveJob, saveNode } from "./db";
 import { chatJSON } from "./gmi";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
+import * as falTurboHalfVideo from "./falTurboHalfVideo";
 import * as falTurboVideo from "./falTurboVideo";
 import * as falVideo from "./falVideo";
 import * as gmiVideo from "./gmiVideo";
@@ -41,6 +42,8 @@ export type StoryNode = {
    * on a reference sheet (fal turbo); the stored copy is trimmed, so this goes back to 0 once it replaces the link.
    */
   clipStartSecs?: number;
+  /** Playback speed for clipUrl while it is a provider link (Turbo Half streams its 2x clip at 0.5); cleared after. */
+  clipPlaybackRate?: number;
   lastFrameFile?: string;
 };
 
@@ -366,12 +369,15 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
       // to R2, the last frame and the archive entry happen in the background (~2-4s saved per step).
       node.clipUrl = clip.url;
       node.clipStartSecs = clip.clipStartSecs || undefined;
+      const rate = (clip as { playbackRate?: number }).playbackRate;
+      node.clipPlaybackRate = rate && rate !== 1 ? rate : undefined;
       const finalize = clip.finalize;
       trackFinalize(
         node,
         (async () => {
           const local = await finalize();
           node.clipStartSecs = undefined; // the stored copy is already trimmed
+          node.clipPlaybackRate = undefined; // ...and already slowed
           await store(local.file, local.url);
           putNode(node); // persist the stable /media URL in place of the CDN link
         })(),
@@ -680,7 +686,7 @@ async function firstFrameFor(from: StoryNode) {
  * are hosted (MachGen uploads, GMI fetches public URLs), which each module handles itself.
  */
 export const videoApi = (provider: VideoProvider) =>
-  provider === "fal-turbo" ? falTurboVideo : provider === "fal" ? falVideo : provider === "gmi" ? gmiVideo : machgen;
+  provider === "fal-turbo" ? falTurboVideo : provider === "fal-turbo-half" ? falTurboHalfVideo : provider === "fal" ? falVideo : provider === "gmi" ? gmiVideo : machgen;
 
 /**
  * Clips handed to the player as a provider CDN link are stored afterwards. Anything that needs the stored
