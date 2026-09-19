@@ -3,6 +3,7 @@ import { CREATIVITY_POINT_OPTIONS, GUEST_POLICIES, GUEST_POLICY_LABELS, LLM_MODE
 import { AdminAuth } from "./AdminAuth";
 import { AdminCredits, useAdminPassword } from "./AdminCredits";
 import { api, type Job, type Settings, type SettingsView } from "./api";
+import { DEFAULT_MUSIC_VOLUME, useMusicVolume } from "./musicVolume";
 
 const PROVIDER_LABELS: Record<VideoProvider, string> = {
   "fal-turbo": "fal Turbo (H3 Max turbo)",
@@ -27,6 +28,38 @@ const MODE_HELP: Record<OutcomeMode, string> = {
   hybrid: "LLM decides, loosely guided by probability ± creativity points.",
   dice: "Server rolls: probability ± creativity points.",
 };
+
+/** Soundtrack level, remembered in this browser. Muting stops the track; the clips keep their own sound. */
+function MusicVolume() {
+  const [volume, setVolume] = useMusicVolume();
+  const percent = Math.round(volume * 100);
+  return (
+    <div className="mb-3">
+      <div className="flex items-center justify-between text-white/70">
+        <span>Music volume</span>
+        <span className="text-white/40">{percent === 0 ? "muted" : `${percent}%`}</span>
+      </div>
+      <div className="mt-1 flex items-center gap-2">
+        <button
+          onClick={() => setVolume(volume === 0 ? DEFAULT_MUSIC_VOLUME : 0)}
+          aria-label={volume === 0 ? "Unmute music" : "Mute music"}
+          className="rounded border border-white/15 px-2 py-0.5 text-xs text-white/70 hover:border-teal hover:text-teal"
+        >
+          {volume === 0 ? "♪" : "✕"}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={percent}
+          onChange={e => setVolume(Number(e.target.value) / 100)}
+          aria-label="Music volume"
+          className="h-1 flex-1 cursor-pointer appearance-none rounded bg-white/20 accent-sodium"
+        />
+      </div>
+    </div>
+  );
+}
 
 export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
   const [open, setOpen] = useState(false);
@@ -85,7 +118,12 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
         // Capped to the viewport below the gear button and scrolled internally: the panel has outgrown a
         // laptop screen, and the page itself cannot scroll because the game fills it.
         <div className="max-h-[calc(100dvh-6rem)] w-80 overflow-y-auto overscroll-contain rounded-lg border border-white/10 bg-black/80 p-4 font-mono text-sm backdrop-blur-md">
-          <h2 className="mb-3 font-display text-xs font-semibold tracking-[0.3em] text-teal">ADMIN // CONTROL ROOM</h2>
+          <h2 className="mb-3 font-display text-xs font-semibold tracking-[0.3em] text-teal">
+            {password ? "ADMIN // CONTROL ROOM" : "SETTINGS"}
+          </h2>
+
+          {/* The viewer's own setting: no password, because it only changes what plays in their ears. */}
+          <MusicVolume />
           {storageFull && (
             <div className="mb-3 rounded border border-siren-red/60 bg-siren-red/10 p-2 text-xs text-siren-red">
               <b>Cloudflare storage cap reached.</b> New clips and exports are no longer being uploaded; they stay on the
@@ -239,6 +277,12 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
               label="Display whether video is freshly generated or cached"
               checked={settings.showClipSource}
               onChange={v => save({ showClipSource: v })}
+            />
+            {/* The debug drawer is open to every visitor; this decides whether it shows them the bill. */}
+            <Toggle
+              label="Show spend in the debug drawer (admins always see it)"
+              checked={settings.showDebugSpend}
+              onChange={v => save({ showDebugSpend: v })}
             />
             <Toggle
               label="Constant think (reuse Sloppy Joe macro loop)"

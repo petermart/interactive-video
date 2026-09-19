@@ -7,6 +7,14 @@ import { fetchTo, isGeneratedUrl, keyForMediaUrl, objectExists, offload, r2Enabl
 
 const MUSIC = `${MEDIA_DIR}/music/loop.mp3`;
 
+/**
+ * The film's opening shot. A shared film used to start with the whole 15-second intro loop, which is the idle
+ * backdrop of the prompt page and far too long in front of someone's two-minute escape. This is a purpose-made
+ * 5-second establishing shot instead (prison exterior, Sloppy Joe behind the bars, his face). If it has not been
+ * generated, the intro clip is used as before.
+ */
+const SHARE_OPENER = "/media/intro/share-open.mp4";
+
 /** True when a finished export is already available, wherever it is served from. */
 async function exportExists(name: string) {
   return r2Enabled() ? objectExists(`exports/${name}`) : existsSync(`${EXPORT_DIR}/${name}`);
@@ -179,6 +187,8 @@ export async function exportFilm(nodeId: string) {
   const steps = chain(node);
   await Promise.all(steps.map(n => whenFinalized(n.id)));
   const clipUrls = steps.map(n => n.clipUrl);
+  // Swap the long idle intro at the head of the chain for the short opening shot.
+  if (steps[0]?.outcome === "intro" && existsSync(`${MEDIA_DIR}/intro/share-open.mp4`)) clipUrls[0] = SHARE_OPENER;
 
   return once(url, () => traced(
     "job",

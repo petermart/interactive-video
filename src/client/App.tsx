@@ -8,10 +8,12 @@ import { api, ApiError, type Job, type StoryNode } from "./api";
 import { HyperFrame } from "./HyperFrame";
 import { PromptBar } from "./PromptBar";
 import { SceneText } from "./SceneText";
+import { musicVolume, onMusicVolume } from "./musicVolume";
 import { fetchMe, SessionBadge, SignInGate, type Me } from "./SignInGate";
 import { apiFetch } from "./viewer";
 
-const MUSIC_VOLUME = 0.35;
+/** How long the YOU FAILED / ESCAPED graphic plays before the sign-in gate is allowed to cover it. */
+const OUTCOME_GRAPHIC_MS = 7000;
 
 /** The step being generated, remembered across reloads so leaving the page doesn't lose it. */
 const PENDING_KEY = "prison-escape:pending-job";
@@ -53,10 +55,15 @@ const writePending = (p: Pending | null) => {
   } catch {}
 };
 
-type Phase ="start" | "intro" | "idle" | "working" | "clip" | "scene" | "failed" | "escaped";
+type Phase = "intro" | "idle" | "working" | "clip" | "scene" | "failed" | "escaped";
 
 export function App() {
-  const [phase, setPhase] = useState<Phase>("start");
+  /**
+   * There is no separate title screen any more: the film opens on the intro loop with the title graphics over it
+   * and the prompt bar already live, so the first thing a visitor sees is the thing they are asked to do.
+   * Autoplay rules mean that opening is muted; the first tap or keypress turns the sound on (see `unlock`).
+   */
+  const [phase, setPhase] = useState<Phase>("intro");
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const [root, setRoot] = useState<StoryNode | null>(null);
@@ -76,10 +83,13 @@ export function App() {
   const [me, setMe] = useState<Me | null>(null);
   /** Lets someone dismiss the gate to watch their finished film before signing in. */
   const [gateDismissed, setGateDismissed] = useState(false);
+  /** The sign-in gate waits for a good moment: never over a clip, and never on top of the outcome graphic. */
+  const [gateArmed, setGateArmed] = useState(false);
   const [showClipSource, setShowClipSource] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const musicRef = useRef<HTMLAudioElement>(null);
   const musicGain = useRef<AudioContext | null>(null);
+  const musicGainNode = useRef<GainNode | null>(null);
   const musicWanted = useRef(false);
 
   // The badge is an admin display option, so re-read it whenever a step finishes.
@@ -97,6 +107,8 @@ export function App() {
       setCurrent(s.root);
       setMusic(s.music);
       setThinkingLoop(s.thinkingLoop);
+      // The intro loop is the backdrop of the first prompt, so it starts on its own (muted until a gesture).
+      playIntro(s.root);
       // A step was generating when the page was left: offer to pick it back up.
       const pending = readPending();
       if (pending) {
@@ -106,6 +118,43 @@ export function App() {
       }
     });
   }, []);
+
+  /**
+   * Sound needs a gesture. With no BEGIN button to provide one, the film opens muted and the first tap, click or
+   * keypress anywhere (typing a direction counts) turns the clip's sound on and starts the soundtrack.
+   */
+  const unlocked = useRef(false);
+  useEffect(() => {
+    const unlock = () => {
+      if (unlocked.current) return;
+      unlocked.current = true;
+      if (videoRef.current) videoRef.current.muted = false;
+      startMusic();
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  /**
+   * When the gate may appear. Asking mid-clip covers the film, and asking the instant a run ends covers the YOU
+   * FAILED / ESCAPED animation, which is the payoff for the play they just spent. So: while the viewer is idle at
+   * the prompt (where signing in is the next step anyway) it shows at once; on an outcome screen it waits for the
+   * graphic to finish; during the intro, a clip, the scene text or a generation it stays away entirely.
+   */
+  useEffect(() => {
+    if (phase === "idle") {
+      setGateArmed(true);
+      return;
+    }
+    setGateArmed(false);
+    if (phase !== "failed" && phase !== "escaped") return;
+    const timer = setTimeout(() => setGateArmed(true), OUTCOME_GRAPHIC_MS);
+    return () => clearTimeout(timer);
+  }, [phase]);
 
   // Browsers pause or defer media in background tabs; restart whatever should be playing when the viewer returns.
   useEffect(() => {
@@ -123,32 +172,56 @@ export function App() {
    * iOS ignores HTMLMediaElement.volume, so there the level has to come from a Web Audio gain node;
    * everywhere else the plain element path is left alone.
    */
-  const startMusic = () => {
+  const applyMusicVolume = (level: number) => {
     const el = musicRef.current;
     if (!el) return;
-    musicWanted.current = true;
-    el.volume = MUSIC_VOLUME;
-    if (Math.abs(el.volume - MUSIC_VOLUME) > 0.01 && !musicGain.current) {
+    el.volume = level;
+    musicGainNode.current?.gain.setValueAtTime(level, musicGain.current?.currentTime ?? 0);
+    // iOS leaves element.volume at 1 however it is set, so the level has to come from a gain node instead.
+    if (Math.abs(el.volume - level) > 0.01 && !musicGain.current) {
       try {
         const ctx = new AudioContext();
         const gain = ctx.createGain();
-        gain.gain.value = MUSIC_VOLUME;
+        gain.gain.value = level;
         ctx.createMediaElementSource(el).connect(gain).connect(ctx.destination);
         musicGain.current = ctx;
+        musicGainNode.current = gain;
       } catch {
         /* no Web Audio: fall back to the element at its own level */
       }
     }
-    musicGain.current?.resume().catch(() => {});
-    el.play().catch(() => {});
   };
+
+  const startMusic = () => {
+    // Wanted first: the gesture can land before the session response has given us a soundtrack to load, and the
+    // ticker below starts it as soon as the element exists.
+    musicWanted.current = true;
+    const el = musicRef.current;
+    if (!el) return;
+    applyMusicVolume(musicVolume());
+    musicGain.current?.resume().catch(() => {});
+    if (musicVolume() > 0) el.play().catch(() => {});
+  };
+
+  // The viewer's own volume slider (settings panel). Silence pauses the track rather than playing it at zero.
+  useEffect(
+    () =>
+      onMusicVolume(level => {
+        applyMusicVolume(level);
+        const el = musicRef.current;
+        if (!el) return;
+        if (level === 0) el.pause();
+        else if (musicWanted.current && el.paused && !document.hidden) el.play().catch(() => {});
+      }),
+    [],
+  );
 
   // iOS hands the audio session to a <video> that starts playing, which pauses the soundtrack; browsers also
   // stall media in background tabs. Pick it back up on the next tap or when the page comes back.
   useEffect(() => {
     const resume = () => {
       const el = musicRef.current;
-      if (!musicWanted.current || !el || document.hidden) return;
+      if (!musicWanted.current || !el || document.hidden || musicVolume() === 0) return;
       musicGain.current?.resume().catch(() => {});
       if (el.paused) el.play().catch(() => {});
     };
@@ -170,6 +243,8 @@ export function App() {
     const v = videoRef.current;
     if (!v || !src) return;
     v.loop = loop;
+    // Before the first gesture the browser will only autoplay a muted video; after it, every clip has its sound.
+    v.muted = !unlocked.current;
     // Turbo Half streams its 2x-speed provider clip at 0.5 until the slowed copy exists; everything else plays at 1.
     // Set both, because loading a new source resets playbackRate to defaultPlaybackRate.
     v.defaultPlaybackRate = rate;
@@ -197,23 +272,20 @@ export function App() {
     v.play().catch(() => {});
   };
 
-  const start = async () => {
-    if (!root) return;
-    startMusic();
-    if (resume) {
-      const [from, savedRoot] = await Promise.all([api.node(resume.fromNodeId), api.node(resume.rootId)]).catch(() => [null, null]);
-      if (from) {
-        if (savedRoot) setRoot(savedRoot);
-        setCurrent(from);
-        setPhase("working");
-        playVideo(from.loopUrl ?? thinkingLoop, true);
-        pollJob(resume.jobId);
-        setResume(null);
-        return;
-      }
+  /** Picks a half-finished step back up: the offer that used to live behind RESUME on the title screen. */
+  const resumePending = async () => {
+    if (!resume) return;
+    const [from, savedRoot] = await Promise.all([api.node(resume.fromNodeId), api.node(resume.rootId)]).catch(() => [null, null]);
+    setResume(null);
+    if (!from) {
       writePending(null);
+      return;
     }
-    playIntro(root);
+    if (savedRoot) setRoot(savedRoot);
+    setCurrent(from);
+    setPhase("working");
+    playVideo(from.loopUrl ?? thinkingLoop, true);
+    pollJob(resume.jobId);
   };
 
   const playIntro = (node: StoryNode) => {
@@ -354,29 +426,32 @@ export function App() {
       />
       {music && <audio ref={musicRef} src={music} loop />}
 
-      {phase === "start" && (
-        <div className="absolute inset-0 z-20 bg-black">
-          <HyperFrame name="title" />
-          <button
-            onClick={start}
-            disabled={!root}
-            className="absolute bottom-10 left-1/2 z-10 -translate-x-1/2 rounded-md border border-sodium/60 bg-black/60 px-8 py-3 font-display text-lg font-bold tracking-[0.35em] text-sodium backdrop-blur transition hover:bg-sodium hover:text-black sm:bottom-16 sm:px-10 sm:py-4 sm:text-xl"
-          >
-            {resume ? "RESUME" : "BEGIN"}
-          </button>
-          {/* Opens in its own tab: leaving the start screen would drop an offered RESUME. */}
+      {/*
+        The opening page: the title card that used to be its own screen, now playing over the intro loop with the
+        prompt bar live underneath it. Same graphics, same taglines, one less click.
+      */}
+      {phase === "intro" && (
+        <>
+          <HyperFrame name="title" className="z-10" />
+          {resume && (
+            <button
+              onClick={resumePending}
+              className="absolute bottom-28 left-1/2 z-40 -translate-x-1/2 rounded-md border border-sodium/60 bg-black/70 px-8 py-3 font-display text-base font-bold tracking-[0.35em] text-sodium backdrop-blur transition hover:bg-sodium hover:text-black sm:bottom-32"
+            >
+              RESUME LAST STEP
+            </button>
+          )}
+          {/* Opens in its own tab: navigating away would drop an offered RESUME and stop the loop. */}
           <a
             href="/about"
             target="_blank"
             rel="noreferrer"
-            className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 font-mono text-xs tracking-[0.3em] text-white/70 underline decoration-white/25 underline-offset-4 transition hover:text-teal hover:decoration-teal sm:bottom-7"
+            className="absolute bottom-24 right-6 z-40 font-mono text-xs tracking-[0.3em] text-white/70 underline decoration-white/25 underline-offset-4 transition hover:text-teal hover:decoration-teal sm:bottom-28"
           >
             ABOUT
           </a>
-        </div>
+        </>
       )}
-
-      {phase === "intro" && <HyperFrame name="intro-title" className="z-10" />}
 
       {phase === "idle" && <HyperFrame name="prompt" className="z-10" bind={{ question: questionText }} />}
 
@@ -434,8 +509,7 @@ export function App() {
         </div>
       )}
 
-      {phase !== "start" && (
-        <div className="absolute left-5 top-5 z-30 flex items-center gap-3 font-mono text-xs tracking-widest text-white/50">
+      <div className="absolute left-5 top-5 z-30 flex items-center gap-3 font-mono text-xs tracking-widest text-white/50">
           <span>ESCAPE PROGRESS · STEP {current?.depth ?? 0}</span>
           {showClipSource && playing && playing.outcome !== "intro" && (
             <span
@@ -452,8 +526,7 @@ export function App() {
               ↺ REWATCH LAST CLIP
             </button>
           )}
-        </div>
-      )}
+      </div>
 
       {toast && (
         <div className="absolute left-1/2 top-20 z-40 max-w-xl -translate-x-1/2 rounded-md border border-siren-red/50 bg-black/80 px-5 py-3 text-center font-mono text-sm text-white backdrop-blur">
@@ -471,16 +544,16 @@ export function App() {
       <DebugPanel />
       <AdminPanel lastDebug={lastDebug} />
 
-      {phase !== "start" && phase !== "failed" && phase !== "escaped" && (
+      {phase !== "failed" && phase !== "escaped" && (
         <PromptBar enabled={phase === "idle" || phase === "intro"} status={status} placeholder={placeholder} onSubmit={direct} />
       )}
 
       {/*
-        The sign-in gate. Held back on the start screen so the title card is never the first thing gated,
+        The sign-in gate. Held back on the opening page so the title card is never the first thing gated,
         and dismissible on an ending so someone can watch and download the film they just made before
         deciding to sign up.
       */}
-      {me && !me.canGenerate && phase !== "start" && !gateDismissed && (
+      {me && !me.canGenerate && gateArmed && !gateDismissed && (
         <SignInGate me={me} onDismiss={phase === "failed" || phase === "escaped" ? () => setGateDismissed(true) : undefined} />
       )}
     </main>

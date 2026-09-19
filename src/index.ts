@@ -22,6 +22,7 @@ import { tagJobOwner, usageReport } from "./server/usage";
 import { deleteArchived, getArchived, listArchive, updateArchived } from "./server/actionCache";
 import { adminArchivePage, adminLoginPage } from "./server/adminPages";
 import { adminCookie, clearAdminCookie, isAdmin, verifyAdminPassword } from "./server/adminSession";
+import { backupManifest, databaseSnapshot, stateFiles } from "./server/backup";
 import { falTurboUsdPerSec } from "./server/falTurboVideo";
 import { regenerateArchived, regenerationStatus } from "./server/pipeline";
 import type { VideoProvider } from "./server/constants";
@@ -96,6 +97,15 @@ const regenerationProviders = () =>
 
 /** Video providers that have an API key here, in preference order: the only ones the admin panel offers. */
 const availableProviders = () => VIDEO_PROVIDERS.filter(providerAvailable);
+
+/**
+ * Blanks the cost column of debug rows when the operator has turned spend off for viewers. An admin (the
+ * password in this browser, sent as a header) always sees the real numbers - it is their bill.
+ */
+function withoutSpend(req: Request) {
+  if (getSettings().showDebugSpend || isAdmin(req)) return (row: unknown) => row;
+  return (row: unknown) => (row && typeof row === "object" && "cost_usd" in row ? { ...row, cost_usd: null } : row);
+}
 
 const server = serve({
   port: Number(process.env.PORT ?? 3000),
@@ -269,6 +279,22 @@ const server = serve({
       },
     },
     "/api/admin/archive": req => (isAdmin(req) ? Response.json({ rows: listArchive() }) : unauthorized()),
+
+    /**
+     * Pulls the deployment's own state to wherever the admin is running scripts/backup-deployment.ts: the
+     * database (share links, accounts, allowances, the event log) and the JSON settings beside it. Media is
+     * not here - it already lives in R2.
+     */
+    "/api/admin/backup": req => (isAdmin(req) ? Response.json(backupManifest()) : unauthorized()),
+    "/api/admin/backup/db": async req => {
+      if (!isAdmin(req)) return unauthorized();
+      const bytes = await databaseSnapshot();
+      return new Response(bytes, {
+        headers: { "content-type": "application/octet-stream", "content-length": String(bytes.byteLength), "cache-control": "no-store" },
+      });
+    },
+    "/api/admin/backup/files": async req =>
+      isAdmin(req) ? Response.json(await stateFiles(), { headers: { "cache-control": "no-store" } }) : unauthorized(),
     "/api/admin/archive/:id": {
       GET: req => {
         if (!isAdmin(req)) return unauthorized();
@@ -336,13 +362,17 @@ const server = serve({
 
     // Debug history (SQLite): recent jobs, then every event for one job.
     // Scoped to the requesting viewer's session UUID; without one there is nothing to show.
+    // What a step cost is stripped here, not just hidden in the drawer, when showDebugSpend is off: the drawer
+    // is open to every visitor, and a setting that only blanks the UI still ships the numbers to them.
     "/api/debug/jobs": req => {
       const viewer = viewerOf(req);
-      return Response.json(viewer ? { jobs: recentJobs(viewer, 50), other: looseEvents(viewer, 30) } : { jobs: [], other: [] });
+      if (!viewer) return Response.json({ jobs: [], other: [] });
+      const hide = withoutSpend(req);
+      return Response.json({ jobs: recentJobs(viewer, 50).map(hide), other: looseEvents(viewer, 30).map(hide) });
     },
     "/api/debug/jobs/:id": req => {
       const viewer = viewerOf(req);
-      return Response.json({ events: viewer ? jobEvents(req.params.id, viewer) : [] });
+      return Response.json({ events: viewer ? jobEvents(req.params.id, viewer).map(withoutSpend(req)) : [] });
     },
 
     "/api/direct": {

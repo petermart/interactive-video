@@ -10,6 +10,7 @@
   "constantThink": true,
   "reuseActions": true,
   "showClipSource": true,
+  "showDebugSpend": true,
   "matchModel": "google/gemma-4-26b-a4b-it",
   "analysisModel": "google/gemini-3.5-flash-lite",
   "writerModel": "google/gemini-3.5-flash-lite",

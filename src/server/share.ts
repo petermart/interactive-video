@@ -6,8 +6,8 @@ import { isEphemeral } from "./ephemeral";
 import { getNode, type StoryNode } from "./pipeline";
 
 /** Tags asked for by the hackathon submission, used as default share text. */
-const TAGS = "@multimodalsoc @MachgenAI @gmi_cloud @ElevenLabs";
-
+//const TAGS = "@multimodalsoc @MachgenAI @gmi_cloud @ElevenLabs";
+const TAGS = "Created by @JustPeterMartin using @gmi_cloud @fal @MachGenAI";
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 function headline(node: StoryNode) {

@@ -171,7 +171,7 @@ export function clipFinalizer(remoteUrl: string, id: string, trimSecs = 0, slowd
 export async function generateVideo({ durationSecs, ...req }: VideoRequest) {
   const prompt = /no music/i.test(req.prompt) ? req.prompt : `${req.prompt}\nNo music.`;
   const images = req.src_image_urls ?? [];
-  const duration = Math.min(15, Math.max(4, Math.round(durationSecs)));
+  const duration = Math.min(15, Math.max(5, Math.round(durationSecs))); // H3 Max rejects anything under 5s
   const input: Record<string, unknown> = { prompt, resolution: RESOLUTION, duration, prompt_expansion_mode: "disabled" };
 
   let endpoint: string = ENDPOINTS.T2V;

@@ -103,6 +103,12 @@ export type Settings = {
   reuseActions: boolean;
   /** Show a CACHED / GENERATED badge on each step, for demos and debugging. */
   showClipSource: boolean;
+  /**
+   * Show what each step cost in the debug drawer. Off in public: the drawer is open to everyone and the dollar
+   * figures are operating costs, not part of the film. An admin (one who has entered the password in this
+   * browser) still sees them either way.
+   */
+  showDebugSpend: boolean;
   /** Lite model that decides whether a new action matches an archived one. */
   matchModel: string;
   /** Skip generating a per-step idle loop; always idle on the pre-made "Sloppy Joe thinking" ultra macro loop. */
@@ -127,6 +133,7 @@ const defaults: Settings = {
   constantThink: true,
   reuseActions: true,
   showClipSource: false,
+  showDebugSpend: true, // existing deployments keep showing it until it is deliberately turned off
   matchModel: "google/gemma-4-26b-a4b-it",
   analysisModel: "google/gemini-3.5-flash-lite",
   writerModel: "google/gemini-3.5-flash-lite",
@@ -157,6 +164,7 @@ export async function updateSettings(patch: Partial<Settings>) {
   next.constantThink = Boolean(next.constantThink);
   next.reuseActions = Boolean(next.reuseActions);
   next.showClipSource = Boolean(next.showClipSource);
+  next.showDebugSpend = Boolean(next.showDebugSpend);
   if (!GUEST_POLICIES.includes(next.guestPolicy)) next.guestPolicy = settings.guestPolicy;
   if (!VIDEO_PROVIDERS.includes(next.videoProvider)) next.videoProvider = settings.videoProvider;
   if (!providerAvailable(next.videoProvider)) next.videoProvider = preferredVideoProvider();

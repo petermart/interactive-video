@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useAdminPassword } from "./AdminCredits";
+import { api } from "./api";
 import { apiFetch } from "./viewer";
 
 type JobRow = {
@@ -41,18 +43,32 @@ export function DebugPanel() {
   const [selected, setSelected] = useState<string | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
 
+  /** An unlocked admin still gets the costs when they are hidden from viewers, so the password rides along. */
+  const password = useAdminPassword();
+  const [showSpend, setShowSpend] = useState(true);
+
   useEffect(() => {
     if (!open) return;
+    const auth = password ? { "x-admin-password": password } : undefined;
     const load = async () => {
-      const data = await apiFetch("/api/debug/jobs").then(r => r.json());
+      const data = await apiFetch("/api/debug/jobs", { headers: auth }).then(r => r.json());
       setJobs(data.jobs);
       setOther(data.other);
-      if (selected) setEvents((await apiFetch(`/api/debug/jobs/${selected}`).then(r => r.json())).events);
+      if (selected) setEvents((await apiFetch(`/api/debug/jobs/${selected}`, { headers: auth }).then(r => r.json())).events);
     };
     load();
+    api.settings().then(s => setShowSpend(s.showDebugSpend || Boolean(password))).catch(() => {});
     const t = setInterval(load, 2000);
     return () => clearInterval(t);
-  }, [open, selected]);
+  }, [open, selected, password]);
+
+  // Escape closes it, like the settings panel: the drawer can cover the whole screen on a phone.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   const totalCost = jobs.reduce((sum, j) => sum + (j.cost_usd ?? 0), 0);
 
@@ -69,12 +85,14 @@ export function DebugPanel() {
       </button>
 
       {open && (
-        <aside className="absolute bottom-0 right-0 top-0 z-50 flex w-full max-w-xl select-text flex-col border-l border-white/10 bg-black/90 font-mono text-xs text-white/80 backdrop-blur-md">
+        // Above the admin gear (z-60): it sits at right-4 top-4, exactly where this header's × is, and was
+        // swallowing every click on it - the drawer looked like it could not be closed.
+        <aside className="absolute bottom-0 right-0 top-0 z-[70] flex w-full max-w-xl select-text flex-col border-l border-white/10 bg-black/90 font-mono text-xs text-white/80 backdrop-blur-md">
           <header className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <div>
               <div className="font-display text-sm font-semibold tracking-[0.3em] text-teal">DEBUG // UNDER THE HOOD</div>
               <div className="mt-0.5 text-white/40">
-                {jobs.length} steps · ${totalCost.toFixed(2)} logged spend · data/debug.sqlite
+                {jobs.length} steps{showSpend && ` · $${totalCost.toFixed(2)} logged spend`} · data/debug.sqlite
               </div>
             </div>
             <button onClick={() => setOpen(false)} className="px-2 text-lg text-white/60 hover:text-white" aria-label="Close debug">
