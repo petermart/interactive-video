@@ -3,7 +3,7 @@ import { findByIntent, findReusableClip, getArchived, markClipUsed, rememberClip
 import type { VideoProvider } from "./constants";
 import { MIN_BALANCE_USD, videoGenerationAllowed } from "./credits";
 import { jobContext, loadJob, loadNode, logEvent, saveJob, saveNode } from "./db";
-import { chatJSON } from "./gmi";
+import { chatJSON } from "./llm";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import * as falTurboHalfVideo from "./falTurboHalfVideo";
 import * as falTurboVideo from "./falTurboVideo";

@@ -14,7 +14,7 @@ import { markDownloaded, viewerLeft } from "./server/ephemeral";
 import { analyticsToken } from "./server/analytics";
 import { auth, authBaseUrl, authEnabled, authSecret, callbackUrlFor, configuredProviders, currentUser, emailPasswordEnabled, reloadAuth } from "./server/auth";
 import { PROVIDER_IDS, providerStatus, saveProvider } from "./server/authConfig";
-import { checkQuota, guestCookie, identifyGuest, recordGameCompleted, recordGeneration } from "./server/quota";
+import { checkQuota, grantShareCredit, guestCookie, identifyGuest, recordGameCompleted, recordGeneration, viewerIsMember, type Viewer } from "./server/quota";
 import { migrateOnBootIfRequested } from "./server/migrateVolume";
 import { startRetention } from "./server/retention";
 import { startArchiveBackups } from "./server/archiveBackup";
@@ -70,12 +70,24 @@ function generatedFrom(base: string, prefix: string) {
   };
 }
 
+const UNLIMITED = { mode: "unlimited", count: 0, resetDays: 0 } as const;
+
 /**
- * The guest policy actually in force. A policy that requires sign-in is only enforced once at least one
- * provider works: with none configured, enforcing it would block every visitor behind a sign-in screen
- * that has no buttons, locking the public out of the game. The admin panel warns about this instead.
+ * The allowance actually in force for one viewer. A guest limit is only enforced once at least one provider
+ * works: with none configured, enforcing it would block every visitor behind a sign-in screen that has no
+ * buttons, locking the public out of the game. The admin panel warns about this instead. A member limit is
+ * always enforced - they are already signed in, so there is nothing to lock them out of.
  */
-const effectivePolicy = () => (authEnabled() ? getSettings().guestPolicy : "unlimited");
+const allowanceFor = (viewer: Viewer) => {
+  const settings = getSettings();
+  if (viewerIsMember(viewer)) return settings.memberAllowance;
+  return authEnabled() ? settings.guestAllowance : UNLIMITED;
+};
+
+/** The verdict plus everything the client needs to explain it. */
+const quotaFor = (viewer: Viewer) => checkQuota(viewer, allowanceFor(viewer), getSettings().memberAllowance);
+
+const viewerFor = async (req: Request): Promise<Viewer> => ({ guest: identifyGuest(req), userId: (await currentUser(req))?.id ?? null });
 
 const html = (body: string, status = 200) =>
   new Response(body, { status, headers: { "content-type": "text/html;charset=utf-8", "cache-control": "no-store" } });
@@ -380,11 +392,10 @@ const server = serve({
         const { fromNodeId, direction } = await req.json();
         if (!direction?.trim()) return Response.json({ error: "Empty direction" }, { status: 400 });
 
-        // The sign-in gate. Signed-in users pass straight through; guests are measured against the policy.
-        const guest = identifyGuest(req);
-        const user = await currentUser(req);
-        const signedIn = Boolean(user);
-        const verdict = checkQuota(guest, effectivePolicy(), signedIn);
+        // The gate: whichever allowance applies to this viewer, guest or member.
+        const viewer = await viewerFor(req);
+        const guest = viewer.guest;
+        const verdict = quotaFor(viewer);
         if (!verdict.allowed) {
           return Response.json(
             { error: verdict.reason, requiresSignIn: verdict.requiresSignIn, providers: configuredProviders() },
@@ -394,8 +405,8 @@ const server = serve({
 
         try {
           const job = startDirection(fromNodeId, direction, viewerOf(req));
-          recordGeneration(guest, signedIn);
-          tagJobOwner(job.id, guest.cookieId, user?.id ?? null);
+          recordGeneration(viewer, allowanceFor(viewer));
+          tagJobOwner(job.id, guest.cookieId, viewer.userId);
           return Response.json(
             { jobId: job.id },
             { headers: guest.issueCookie ? { "set-cookie": guestCookie(guest.cookieId) } : {} },
@@ -408,9 +419,9 @@ const server = serve({
 
     /** Who the viewer is and what they are still allowed to do, so the client can gate its own UI. */
     "/api/me": async req => {
-      const guest = identifyGuest(req);
       const user = await currentUser(req);
-      const verdict = checkQuota(guest, effectivePolicy(), Boolean(user));
+      const viewer: Viewer = { guest: identifyGuest(req), userId: user?.id ?? null };
+      const verdict = quotaFor(viewer);
       return Response.json(
         {
           signedIn: Boolean(user),
@@ -419,21 +430,43 @@ const server = serve({
           authEnabled: authEnabled(),
           providers: configuredProviders(),
           emailPassword: emailPasswordEnabled(),
-          policy: verdict.policy,
+          allowance: verdict.allowance,
           used: verdict.used,
+          bonus: verdict.bonus,
+          remaining: verdict.remaining,
+          resetsAt: verdict.resetsAt,
           canGenerate: verdict.allowed,
+          requiresSignIn: verdict.requiresSignIn,
           blockedReason: verdict.allowed ? null : verdict.reason,
+          // Whether sharing an ending is currently worth an extra go, so the gate can offer it.
+          shareGrantsGame: getSettings().shareGrantsGame,
         },
-        { headers: guest.issueCookie ? { "set-cookie": guestCookie(guest.cookieId) } : {} },
+        { headers: viewer.guest.issueCookie ? { "set-cookie": guestCookie(viewer.guest.cookieId) } : {} },
       );
     },
 
-    /** Counts a finished story against the guest's allowance, so "one full game" can end. */
+    /** Counts a finished story against this viewer's allowance, so a "games" limit can ever be reached. */
     "/api/game-complete": {
       POST: async req => {
-        const guest = identifyGuest(req);
-        recordGameCompleted(guest, Boolean(await currentUser(req)));
+        const viewer = await viewerFor(req);
+        recordGameCompleted(viewer, allowanceFor(viewer));
         return new Response(null, { status: 204 });
+      },
+    },
+
+    /**
+     * "Share your run for another go." Paid out once per ending, on the viewer's word that they shared it -
+     * there is no way to verify a share, and the trade (a link out into the world for one more generation)
+     * is worth more than the occasional freeloader.
+     */
+    "/api/share-credit": {
+      POST: async req => {
+        if (!getSettings().shareGrantsGame) return Response.json({ granted: false, reason: "Not offered" }, { status: 400 });
+        const { nodeId } = await req.json().catch(() => ({}));
+        if (!nodeId || typeof nodeId !== "string") return Response.json({ error: "Which run?" }, { status: 400 });
+        const viewer = await viewerFor(req);
+        const granted = grantShareCredit(viewer, nodeId, allowanceFor(viewer));
+        return Response.json({ granted, ...quotaFor(viewer) });
       },
     },
 

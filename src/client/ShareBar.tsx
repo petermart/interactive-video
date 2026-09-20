@@ -86,17 +86,39 @@ const canShareFiles = () => {
  * Instagram and TikTok); everywhere else it opens a compact icon carousel of composers, uploads and downloads.
  * The 9:16 cut is only rendered when something asks for it, so the landscape stitch isn't slowed down.
  */
-export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome: string; accent: string }) {
+export function ShareBar({
+  nodeId,
+  outcome,
+  accent,
+  label: labelOverride,
+  onShared,
+}: {
+  nodeId: string;
+  outcome: string;
+  accent: string;
+  /** Overrides the button's wording (the sign-in gate offers this as "share for another go"). */
+  label?: string;
+  /** Fired when the viewer actually shares - handed off to a platform, the OS sheet, or the clipboard. */
+  onShared?: (how: string) => void;
+}) {
   const [info, setInfo] = useState<Info | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<"preparing" | "ready" | "error">("preparing");
   const [note, setNote] = useState("");
   const [open, setOpen] = useState(false);
+  /** Seconds spent stitching, so the wait can be narrated rather than left as a dead button. */
+  const [elapsed, setElapsed] = useState(0);
   const [place, setPlace] = useState<CSSProperties>({});
   const menuRef = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
   const stripRef = useRef<HTMLDivElement>(null);
   const phone = canShareFiles();
+
+  useEffect(() => {
+    if (status !== "preparing") return;
+    const t = setInterval(() => setElapsed(e => e + 1), 1000);
+    return () => clearInterval(t);
+  }, [status]);
 
   /** A mouse wheel has no horizontal axis, so drive the carousel with vertical scrolling. */
   useEffect(() => {
@@ -206,10 +228,17 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
     if (!phone) return setOpen(o => !o);
     try {
       // Sharing the file itself is fine even for a temporary cut: the recipient gets bytes, not a link.
-      if (file && navigator.canShare?.({ files: [file] })) return await navigator.share({ files: [file], title: info.title, text: info.text });
-      if (navigator.share && info.pageUrl) return await navigator.share({ title: info.title, text: info.text, url: info.pageUrl });
+      if (file && navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: info.title, text: info.text });
+        return onShared?.("os-sheet-file");
+      }
+      if (navigator.share && info.pageUrl) {
+        await navigator.share({ title: info.title, text: info.text, url: info.pageUrl });
+        return onShared?.("os-sheet-link");
+      }
       setOpen(o => !o);
     } catch (err) {
+      // A cancelled sheet is not a share and must not earn anything.
       if ((err as Error)?.name !== "AbortError") setNote((err as Error).message);
     }
   };
@@ -225,6 +254,18 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
 
   const busy = status === "preparing";
   const chip = "rounded-full border border-white/20 px-3 py-1 text-[11px] text-white/70 hover:border-white/50 hover:text-white";
+  /**
+   * Stitching takes about ten seconds on the server, and "STITCHING YOUR FILM…" told people nothing about
+   * what was coming or that it was worth waiting for - a tester said she would have left the page. So say
+   * what is being made, and that it is nearly there.
+   */
+  const label = busy
+    ? elapsed < 4
+      ? "BUILDING YOUR FILM…"
+      : elapsed < 9
+        ? "BUILDING YOUR FILM… ALMOST THERE"
+        : "ALMOST THERE — STILL BUILDING…"
+    : (labelOverride ?? (phone ? "SHARE VIDEO" : "SHARE YOUR FILM"));
 
   return (
     <div className="flex flex-col items-center gap-1">
@@ -234,7 +275,7 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
           disabled={busy || !info}
           className={`rounded-md border px-6 py-3 font-display font-semibold tracking-widest backdrop-blur transition disabled:cursor-wait disabled:opacity-60 ${accent}`}
         >
-          {busy ? "STITCHING YOUR FILM…" : phone ? "SHARE VIDEO" : "SHARE YOUR FILM"}
+          {label}
         </button>
         {phone && (
           <button
@@ -248,6 +289,12 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
         )}
       </div>
 
+      {/* Says what the wait is for, so nobody leaves before they know there is a video to take with them. */}
+      {busy && (
+        <span className="max-w-xs text-center font-mono text-[11px] leading-relaxed text-white/60">
+          Cutting every scene of your escape into one video you can post or download. About 10 seconds.
+        </span>
+      )}
       {note && <span className="font-mono text-[11px] text-white/60">{note}</span>}
 
       {open &&
@@ -284,7 +331,10 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
                   <Icon
                     key={t.id}
                     target={t}
-                    onClick={run(() => void window.open(t.href(info as Info & { pageUrl: string }), "_blank", "noopener,noreferrer,width=600,height=640"))}
+                    onClick={run(() => {
+                      window.open(t.href(info as Info & { pageUrl: string }), "_blank", "noopener,noreferrer,width=600,height=640");
+                      onShared?.(t.id);
+                    })}
                   />
                 ))}
               {/* Uploads send the actual file, so they keep working: the viewer's copy outlives ours. */}
@@ -296,6 +346,7 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
                   onClick={run(async () => {
                     save(t.vertical ? await ensureVertical() : info.videoUrl, t.vertical ? "-vertical" : "");
                     window.open(t.url, "_blank", "noopener,noreferrer");
+                    onShared?.(t.id);
                   })}
                 />
               ))}
@@ -308,6 +359,7 @@ export function ShareBar({ nodeId, outcome, accent }: { nodeId: string; outcome:
                   onClick={run(async () => {
                     await navigator.clipboard.writeText(info.pageUrl!);
                     setNote("Link copied");
+                    onShared?.("copy-link");
                   })}
                 >
                   Copy link

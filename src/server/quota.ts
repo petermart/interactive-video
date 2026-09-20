@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import type { GuestPolicy } from "./constants";
+import { goSize, type Allowance } from "./constants";
 import { db, logEvent, tryExec, tryQuery } from "./db";
 
 /**
@@ -18,13 +18,25 @@ import { db, logEvent, tryExec, tryQuery } from "./db";
 tryExec("guest usage", `
   CREATE TABLE IF NOT EXISTS guest_usage (
     id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,            -- 'cookie' or 'ip'
+    kind TEXT NOT NULL,            -- 'cookie', 'ip' or 'user'
     generations INTEGER NOT NULL DEFAULT 0,
     games_completed INTEGER NOT NULL DEFAULT 0,
     first_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     last_seen TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
   );
   CREATE INDEX IF NOT EXISTS guest_usage_kind ON guest_usage(kind);
+`);
+// Extra allowance earned by sharing a run, and the runs already paid out for (so one ending is worth one
+// credit, however many times its share sheet is opened). Added after the table shipped.
+tryExec("bonus column", `ALTER TABLE guest_usage ADD COLUMN bonus INTEGER NOT NULL DEFAULT 0`);
+// When the current allowance window opened. Allowances refill on a rolling window per person, so this is
+// the clock each row is measured against; null on rows that predate it, which fall back to first_seen.
+tryExec("window column", `ALTER TABLE guest_usage ADD COLUMN window_start TEXT`);
+tryExec("share credits", `
+  CREATE TABLE IF NOT EXISTS share_credits (
+    id TEXT PRIMARY KEY,           -- '<identity>:<nodeId>'
+    granted_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
 `);
 
 const COOKIE = "sp_guest";
@@ -100,108 +112,175 @@ const prepared = (key: string, sql: string) => {
 const upsert = () =>
   prepared("upsert", `INSERT INTO guest_usage (id, kind) VALUES ($id, $kind)
    ON CONFLICT(id) DO UPDATE SET last_seen = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`);
-const bump = (column: "generations" | "games_completed") =>
+const bump = (column: "generations" | "games_completed" | "bonus") =>
   prepared(column, `UPDATE guest_usage SET ${column} = ${column} + 1, last_seen = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = $id`);
 
-type Usage = { generations: number; games_completed: number };
-const NO_USAGE: Usage = { generations: 0, games_completed: 0 };
-/** A missing table reads as "no usage yet": guests are let through rather than blocked by a broken ledger. */
-const readUsage = (id: string): Usage =>
-  tryQuery(() => db.query<Usage, [string]>(`SELECT generations, games_completed FROM guest_usage WHERE id = ?`).get(id), null, "guest usage") ??
-  NO_USAGE;
+/** Wipes a row's counters and starts its window now. Used when the previous window has run out. */
+const reopen = () =>
+  prepared(
+    "reopen",
+    `UPDATE guest_usage SET generations = 0, games_completed = 0, bonus = 0,
+      window_start = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), last_seen = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     WHERE id = $id`,
+  );
+
+type Row = { generations: number; games_completed: number; bonus: number; window_start: string | null; first_seen: string };
+const NO_ROW: Row = { generations: 0, games_completed: 0, bonus: 0, window_start: null, first_seen: new Date().toISOString() };
+/** A missing table reads as "no usage yet": viewers are let through rather than blocked by a broken ledger. */
+const readRow = (id: string): Row =>
+  tryQuery(
+    () => db.query<Row, [string]>(`SELECT generations, games_completed, bonus, window_start, first_seen FROM guest_usage WHERE id = ?`).get(id),
+    null,
+    "usage",
+  ) ?? NO_ROW;
+
+const DAY = 24 * 60 * 60 * 1000;
+
+export type Usage = { generations: number; games_completed: number; bonus: number; expired: boolean; resetsAt: string | null };
 
 /**
- * What one visitor gets under each policy. `null` means "no limit on this axis".
- *
- * These are counts of what is ALLOWED, and the gate falls when usage reaches the number — so "one-game" is
- * 1 (blocked once one story has been finished), not 0. Getting that backwards blocks every guest on their
- * very first move, which is the opposite of letting them play a game first.
+ * A row read through its allowance window. Past the window the slate is clean, and the row itself is only
+ * rewritten when the viewer next does something - a lazy reset, so nothing has to sweep the table.
  */
-function allowanceFor(policy: GuestPolicy): { generations: number | null; games: number | null } {
-  switch (policy) {
-    case "unlimited":
-      return { generations: null, games: null };
-    case "one-game":
-      // Unlimited steps within the first story; the gate falls once that story has ended.
-      return { generations: null, games: 1 };
-    case "one-generation":
-      return { generations: 1, games: null };
-    case "none":
-      return { generations: 0, games: null };
-  }
+function windowed(row: Row, resetDays: number): Usage {
+  const clean = { generations: row.generations, games_completed: row.games_completed, bonus: row.bonus };
+  if (!resetDays) return { ...clean, expired: false, resetsAt: null };
+  const started = Date.parse(row.window_start ?? row.first_seen);
+  const ends = (Number.isFinite(started) ? started : Date.now()) + resetDays * DAY;
+  if (Date.now() >= ends) return { generations: 0, games_completed: 0, bonus: 0, expired: true, resetsAt: null };
+  return { ...clean, expired: false, resetsAt: new Date(ends).toISOString() };
+}
+
+const readUsage = (id: string, resetDays: number) => windowed(readRow(id), resetDays);
+
+/**
+ * Who is being measured. A signed-in member is counted against their account, a guest against their cookie
+ * (and, loosely, their network). `signedIn` is derived rather than passed so the two can never disagree.
+ */
+export type Viewer = { guest: Guest; userId: string | null };
+export const viewerIsMember = (v: Viewer) => Boolean(v.userId);
+
+/** The ledger row this viewer is counted against: their account if signed in, else their guest cookie. */
+function ledgerOf(v: Viewer): { id: string; kind: "cookie" | "user" } {
+  return v.userId ? { id: `user:${v.userId}`, kind: "user" } : { id: v.guest.cookieId, kind: "cookie" };
 }
 
 export type QuotaVerdict = {
   allowed: boolean;
-  /** True when signing in is what would unblock them (as opposed to being out of credits, etc.). */
+  /** True when signing in is what would unblock them, as opposed to having used up a member allowance. */
   requiresSignIn: boolean;
   reason: string;
-  policy: GuestPolicy;
+  allowance: Allowance;
   used: { generations: number; games: number };
+  /** Goes earned by sharing (each worth a whole game, or a whole allowance of steps). */
+  bonus: number;
+  /** What is left on the active axis; null when unlimited. */
+  remaining: number | null;
+  /** When this allowance refills; null when it never does, or when nothing has been used yet. */
+  resetsAt: string | null;
 };
 
-const ALLOWED: Omit<QuotaVerdict, "policy" | "used"> = { allowed: true, requiresSignIn: false, reason: "" };
+/**
+ * Decides whether this viewer may generate, against the allowance for their side of the sign-in line.
+ *
+ * Games and generations are alternatives: in "games" mode a story can run as long as it likes and the gate
+ * falls only once it has ended, so the generation number is not consulted at all. Counts are what is
+ * ALLOWED, and the gate falls when usage reaches the number - 1 game means blocked after one ending, not
+ * before the first move.
+ */
+export function checkQuota(viewer: Viewer, allowance: Allowance, memberAllowance?: Allowance): QuotaVerdict {
+  const member = viewerIsMember(viewer);
+  const usage = readUsage(ledgerOf(viewer).id, allowance.resetDays);
+  const used = { generations: usage.generations, games: usage.games_completed };
+  const base = { allowance, used, bonus: usage.bonus, resetsAt: usage.resetsAt };
+
+  if (allowance.mode === "unlimited") return { allowed: true, requiresSignIn: false, reason: "", remaining: null, ...base };
+
+  const games = allowance.mode === "games";
+  // Each earned go is worth a whole game, or a whole allowance of steps - never a single step.
+  const cap = allowance.count + usage.bonus * goSize(allowance);
+  const spent = games ? usage.games_completed : usage.generations;
+  // A guest can also be caught by their network's much looser limit: cookies are cheap to clear.
+  const networkSpent = member ? 0 : (() => {
+    const ip = readUsage(`ip:${viewer.guest.ip}`, allowance.resetDays);
+    return games ? ip.games_completed : ip.generations;
+  })();
+  const blocked = spent >= cap || networkSpent >= (cap + 1) * IP_TOLERANCE;
+  const remaining = Math.max(0, cap - spent);
+  if (!blocked) return { allowed: true, requiresSignIn: false, reason: "", remaining, ...base };
+
+  /**
+   * Whether signing in would actually unblock them. It usually would, and not only when members are allowed
+   * more: an account is a fresh ledger, so a guest who has spent their free story starts a signed-in one at
+   * zero. The only case where the offer would be a lie is a member allowance of nothing at all.
+   */
+  const signInHelps = !member && (!memberAllowance || memberAllowance.mode === "unlimited" || memberAllowance.count > 0);
+  const unit = games ? "story" : "scene";
+  const units = games ? "stories" : "scenes";
+  const spentIt = allowance.count === 1 ? `That's your ${member ? "" : "free "}${unit} for now.` : `That's all ${allowance.count} of your ${units} for now.`;
+  // Nothing at all allowed is a different situation from having used what you were given, and saying
+  // "paused" to someone who simply spent their go would be a lie they can check against the clock.
+  // Kept to one short line: the gate's own copy makes the case underneath it, and a two-sentence headline
+  // wrapped to three lines on a phone.
+  const reason = cap === 0 ? (signInHelps ? `Sign in to direct your first ${unit}.` : "Generating is paused for now.")
+    : signInHelps ? `That's your free ${unit}.`
+    : spentIt;
+
+  return { allowed: false, requiresSignIn: signInHelps, reason, remaining: 0, ...base };
+}
+
+/** Counts one generated step against this viewer (and, for a guest, their network). */
+export function recordGeneration(viewer: Viewer, allowance: Allowance) {
+  record(viewer, "generations", allowance.resetDays);
+}
+
+/** Counts one finished story (escaped or caught) against this viewer. */
+export function recordGameCompleted(viewer: Viewer, allowance: Allowance) {
+  record(viewer, "games_completed", allowance.resetDays);
+  logEvent({ kind: "job", label: "story finished", response: { member: viewerIsMember(viewer) } });
+}
+
+/** Makes sure a row exists and its window is current, so a count lands in the right window. */
+function touch(id: string, kind: "cookie" | "user" | "ip", resetDays: number) {
+  upsert().run({ $id: id, $kind: kind });
+  if (windowed(readRow(id), resetDays).expired) reopen().run({ $id: id });
+}
+
+function record(viewer: Viewer, column: "generations" | "games_completed", resetDays: number) {
+  const rows: { id: string; kind: "cookie" | "user" | "ip" }[] = [ledgerOf(viewer)];
+  // A guest's network is tracked too, so clearing cookies is not a reset button. Members are not.
+  if (!viewerIsMember(viewer)) rows.push({ id: `ip:${viewer.guest.ip}`, kind: "ip" });
+  for (const { id, kind } of rows) {
+    tryQuery(() => {
+      touch(id, kind, resetDays);
+      bump(column).run({ $id: id });
+    }, null, `record ${column}`);
+  }
+}
 
 /**
- * Decides whether this request may generate. Signed-in users are never limited here; the quota exists
- * purely to decide when to ask someone to sign in.
+ * Pays out the "share your run for another go" offer: one credit per finished run, whoever they are.
+ * Returns false when this run has already been paid for, so reopening the share sheet earns nothing.
  */
-export function checkQuota(guest: Guest, policy: GuestPolicy, signedIn: boolean): QuotaVerdict {
-  const cookieUsage = readUsage(guest.cookieId);
-  const used = { generations: cookieUsage.generations, games: cookieUsage.games_completed };
-  if (signedIn || policy === "unlimited") return { ...ALLOWED, policy, used };
-
-  const limit = allowanceFor(policy);
-  const ipUsage = readUsage(`ip:${guest.ip}`);
-
-  const over = (usedCount: number, ipCount: number, cap: number | null) =>
-    cap !== null && (usedCount >= cap || ipCount >= (cap + 1) * IP_TOLERANCE);
-
-  if (over(cookieUsage.generations, ipUsage.generations, limit.generations)) {
-    return {
-      allowed: false,
-      requiresSignIn: true,
-      reason:
-        policy === "none"
-          ? "Sign in to direct your first scene."
-          : "That's your free scene. Sign in to keep directing.",
-      policy,
-      used,
-    };
-  }
-  if (over(cookieUsage.games_completed, ipUsage.games_completed, limit.games)) {
-    return { allowed: false, requiresSignIn: true, reason: "You've finished your free story. Sign in to start another.", policy, used };
-  }
-  return { ...ALLOWED, policy, used };
-}
-
-/** Counts one generated step against this guest (and their network). Signed-in users are not tracked. */
-export function recordGeneration(guest: Guest, signedIn: boolean) {
-  if (signedIn) return;
-  for (const [id, kind] of [
-    [guest.cookieId, "cookie"],
-    [`ip:${guest.ip}`, "ip"],
-  ] as const) {
-    tryQuery(() => {
-      upsert().run({ $id: id, $kind: kind });
-      bump("generations").run({ $id: id });
-    }, null, "record generation");
-  }
-}
-
-/** Counts one finished story (escaped or caught) against this guest. */
-export function recordGameCompleted(guest: Guest, signedIn: boolean) {
-  if (signedIn) return;
-  for (const [id, kind] of [
-    [guest.cookieId, "cookie"],
-    [`ip:${guest.ip}`, "ip"],
-  ] as const) {
-    tryQuery(() => {
-      upsert().run({ $id: id, $kind: kind });
-      bump("games_completed").run({ $id: id });
-    }, null, "record game");
-  }
-  logEvent({ kind: "job", label: "guest finished a story", response: { policy: "guest" } });
+export function grantShareCredit(viewer: Viewer, nodeId: string, allowance: Allowance) {
+  const { id: ledgerId, kind } = ledgerOf(viewer);
+  const key = `${ledgerId}:${nodeId}`;
+  return (
+    tryQuery(
+      () => {
+        const claimed = db.query(`SELECT 1 FROM share_credits WHERE id = ?`).get(key);
+        if (claimed) return false;
+        db.query(`INSERT INTO share_credits (id) VALUES (?)`).run(key);
+        // Touch first: a credit earned after the window turned over belongs to the new window, not the old.
+        touch(ledgerId, kind, allowance.resetDays);
+        bump("bonus").run({ $id: ledgerId });
+        logEvent({ kind: "job", label: "share earned another game", response: { member: viewerIsMember(viewer) } });
+        return true;
+      },
+      false,
+      "share credit",
+    ) ?? false
+  );
 }
 
 /** Guest-gate figures for the admin panel. */

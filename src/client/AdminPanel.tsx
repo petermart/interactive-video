@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CREATIVITY_POINT_OPTIONS, GUEST_POLICIES, GUEST_POLICY_LABELS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type LlmModelId, type OutcomeMode, type VideoProvider } from "../server/constants";
+import { ALLOWANCE_MAX, ALLOWANCE_MODE_LABELS, ALLOWANCE_MODES, RESET_DAYS_MAX, CREATIVITY_POINT_OPTIONS, describeAllowance, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type Allowance, type AllowanceMode, type LlmModelId, type OutcomeMode, type VideoProvider } from "../server/constants";
 import { AdminAuth } from "./AdminAuth";
 import { AdminCredits, useAdminPassword } from "./AdminCredits";
 import { api, type Job, type Settings, type SettingsView } from "./api";
@@ -28,6 +28,59 @@ const MODE_HELP: Record<OutcomeMode, string> = {
   hybrid: "LLM decides, loosely guided by probability ± creativity points.",
   dice: "Server rolls: probability ± creativity points.",
 };
+
+/**
+ * One side of the gate: unlimited, N finished games, or N generated steps. The number is hidden when the
+ * mode is unlimited, because a count that does nothing invites the operator to set it and wonder why.
+ */
+function AllowanceField({ label, value, onChange }: { label: string; value: Allowance; onChange: (v: Allowance) => void }) {
+  const whole = (raw: string, max: number) => Math.max(0, Math.min(max, Math.round(Number(raw) || 0)));
+  return (
+    <div className="mt-1">
+      <div className="flex items-center gap-2">
+        <span className="w-20 shrink-0 text-[11px] leading-tight text-white/50">{label}</span>
+        <select
+          value={value.mode}
+          onChange={e => onChange({ ...value, mode: e.target.value as AllowanceMode, count: value.count || 1 })}
+          className="w-0 min-w-0 flex-1 rounded border border-white/15 bg-white/5 px-2 py-1 text-xs text-white"
+        >
+          {ALLOWANCE_MODES.map(m => (
+            <option key={m} value={m} className="bg-black">
+              {ALLOWANCE_MODE_LABELS[m]}
+            </option>
+          ))}
+        </select>
+        {value.mode !== "unlimited" && (
+          <input
+            type="number"
+            min={0}
+            max={ALLOWANCE_MAX}
+            value={value.count}
+            onChange={e => onChange({ ...value, count: whole(e.target.value, ALLOWANCE_MAX) })}
+            aria-label={`${label} allowance`}
+            className="w-12 shrink-0 rounded border border-white/15 bg-white/5 px-1.5 py-1 text-right text-xs text-white"
+          />
+        )}
+      </div>
+      {/* The refill clock is per person and starts at their first move, so it is not a global reset hour. */}
+      {value.mode !== "unlimited" && (
+        <div className="mt-1 flex items-center gap-2 pl-[5.5rem] text-[11px] text-white/40">
+          <span>refills every</span>
+          <input
+            type="number"
+            min={0}
+            max={RESET_DAYS_MAX}
+            value={value.resetDays}
+            onChange={e => onChange({ ...value, resetDays: whole(e.target.value, RESET_DAYS_MAX) })}
+            aria-label={`${label} reset days`}
+            className="w-12 shrink-0 rounded border border-white/15 bg-white/5 px-1.5 py-0.5 text-right text-white"
+          />
+          <span>{value.resetDays === 0 ? "days (never)" : value.resetDays === 1 ? "day" : "days"}</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Soundtrack level, remembered in this browser. Muting stops the track; the clips keep their own sound. */
 function MusicVolume() {
@@ -154,32 +207,39 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
             the password can't use any of it, so it is hidden until the password has been accepted.
           */}
           {password && (
-          <fieldset>
+          // min-w-0: a fieldset defaults to min-width:min-content, so without it the widest control inside
+          // stretches the whole panel and gives it a horizontal scrollbar.
+          <fieldset className="min-w-0">
 
-          {/* The sign-in gate: how much a viewer gets before being asked to sign in. */}
-          <div className="text-white/70">Guests may play</div>
-          <select
-            value={settings.guestPolicy}
-            onChange={e => save({ guestPolicy: e.target.value as SettingsView["guestPolicy"] })}
-            className="mt-1 w-full rounded border border-white/15 bg-white/5 px-2 py-1 text-white"
-          >
-            {GUEST_POLICIES.map(p => (
-              <option key={p} value={p} className="bg-black">
-                {GUEST_POLICY_LABELS[p]}
-              </option>
-            ))}
-          </select>
+          {/* The gate: how much each side of the sign-in line gets, counted in games or in generations. */}
+          <div className="text-white/70">Allowance</div>
+          <AllowanceField
+            label="Not signed in"
+            value={settings.guestAllowance}
+            onChange={v => save({ guestAllowance: v })}
+          />
+          <AllowanceField
+            label="Signed in"
+            value={settings.memberAllowance}
+            onChange={v => save({ memberAllowance: v })}
+          />
           {/* Otherwise the operator believes guests are gated while every visitor walks straight through. */}
-          {settings.guestPolicy !== "unlimited" && !settings.authEnabled && (
+          {settings.guestAllowance.mode !== "unlimited" && !settings.authEnabled && (
             <div className="mt-1 rounded border border-sodium/40 bg-sodium/10 p-2 text-xs text-sodium">
               <b>Not enforced yet.</b> Sign-in isn't available yet, so guests play without limits until it is set
-              up under Sign-in providers above.
+              up under Sign-in providers above. A signed-in limit still applies.
             </div>
           )}
+          <Toggle
+            label="Sharing a run earns one more go (a whole game)"
+            checked={settings.shareGrantsGame}
+            onChange={v => save({ shareGrantsGame: v })}
+          />
           <div className="mb-3 mt-1 text-xs text-white/40">
-            {settings.guestPolicy === "unlimited"
-              ? "Nobody is asked to sign in."
-              : "Signed-in viewers are never limited. Guests are tracked per browser, with a looser limit per network so shared wifi isn't blocked by one person."}
+            Guests get {describeAllowance(settings.guestAllowance)}; signed in, {describeAllowance(settings.memberAllowance)}.
+            {" "}In games mode a story runs as long as it likes and the step count is ignored. Guests are counted per
+            browser, with a looser limit per network so shared wifi isn't blocked by one person; signed-in play is
+            counted per account.
           </div>
 
           <div className="text-white/70">Success decided by</div>

@@ -22,10 +22,24 @@ const run = (args: string[]) => {
   if (p.exitCode !== 0) throw new Error(`${args[0]} failed: ${p.stderr.toString().trim().slice(-300)}`);
 };
 
+/** Copies a finished clip to where the app serves it, dropping the audio track when the clip is muted. */
+function publish(from: string, name: string, mute = false) {
+  mkdirSync("media/intro", { recursive: true });
+  const to = `media/intro/${name}`;
+  if (!mute) return copyFileSync(from, to);
+  run(["ffmpeg", "-v", "error", "-y", "-i", from, "-an", "-c:v", "copy", "-movflags", "+faststart", to]);
+}
+
 type Clip = {
   secs: number;
   /** I2V opening and closing on <name>-keyframe.png: a seamless loop. */
   loop?: boolean;
+  /**
+   * Strip the audio from the copy the app serves, keeping the master here intact. H3 gives the intro a low
+   * bass drone however firmly the prompt says "No music", and the intro plays under the site's own looping
+   * soundtrack, so the two beat against each other. Only this clip: step clips keep their foley.
+   */
+  muteServed?: boolean;
   /** R2V reference images. */
   refs?: string[];
   /**
@@ -38,7 +52,7 @@ type Clip = {
 
 const CLIPS: Record<string, Clip> = {
   // Opens and closes on the same keyframe: the intro doubles as the idle loop behind the first prompt.
-  intro: { secs: 15, loop: true },
+  intro: { secs: 15, loop: true, muteServed: true },
   // The opening of a shared film. References rather than a first frame: it starts outside the prison, not in the
   // cell. 5s is H3 Max's minimum length.
   "share-open": {
@@ -95,7 +109,6 @@ const result = await generateVideo({
 
 // generateVideo returns as soon as fal has the clip; finalize() brings it down to disk.
 const { file } = await result.finalize();
-mkdirSync("media/intro", { recursive: true });
 copyFileSync(file, `${DIR}/${name}.mp4`);
 
 if (head) {
@@ -115,10 +128,11 @@ if (head) {
     "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", stitched,
   ]);
   renameSync(stitched, target);
-  copyFileSync(target, `media/intro/${target.split("/").pop()}`);
+  const served = target.split("/").pop()!;
+  publish(target, served, CLIPS[served.replace(/\.mp4$/, "")]?.muteServed);
   console.log(`stitched into ${target} (old one kept at ${backup}), spent ~$${result.creditCost}`);
 } else {
-  copyFileSync(file, `media/intro/${name}.mp4`);
-  console.log(`saved ${DIR}/${name}.mp4 and media/intro/${name}.mp4 (spent ~$${result.creditCost})`);
+  publish(file, `${name}.mp4`, clip.muteServed);
+  console.log(`saved ${DIR}/${name}.mp4 and media/intro/${name}.mp4${clip.muteServed ? " (served copy muted)" : ""} (spent ~$${result.creditCost})`);
 }
 process.exit(0);

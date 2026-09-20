@@ -416,6 +416,8 @@ export function App() {
     subtitle: playing?.failType === "dead" ? "SUBJECT TERMINATED" : "SUBJECT RE-DETAINED",
   };
 
+  const gateUp = Boolean(me && !me.canGenerate && gateArmed && !gateDismissed);
+
   return (
     <main className="relative h-full w-full select-none bg-cell">
       <video
@@ -441,16 +443,24 @@ export function App() {
               RESUME LAST STEP
             </button>
           )}
-          {/* Opens in its own tab: navigating away would drop an offered RESUME and stop the loop. */}
-          <a
-            href="/about"
-            target="_blank"
-            rel="noreferrer"
-            className="absolute bottom-24 right-6 z-40 font-mono text-xs tracking-[0.3em] text-white/70 underline decoration-white/25 underline-offset-4 transition hover:text-teal hover:decoration-teal sm:bottom-28"
-          >
-            ABOUT
-          </a>
         </>
+      )}
+
+      {/*
+        ABOUT stays reachable while the sign-in gate is up (z-[55] clears the gate's z-50 backdrop): someone
+        being asked to sign in is exactly the person who wants to know whose site this is first. It is also
+        shown whenever the gate is up, not just on the opening page, so the question can always be answered.
+        Opens in its own tab: navigating away would drop an offered RESUME and stop the loop.
+      */}
+      {(phase === "intro" || gateUp) && (
+        <a
+          href="/about"
+          target="_blank"
+          rel="noreferrer"
+          className="absolute bottom-24 right-6 z-[55] font-mono text-xs tracking-[0.3em] text-white/70 underline decoration-white/25 underline-offset-4 transition hover:text-teal hover:decoration-teal sm:bottom-28"
+        >
+          ABOUT
+        </a>
       )}
 
       {phase === "idle" && <HyperFrame name="prompt" className="z-10" bind={{ question: questionText }} />}
@@ -553,8 +563,14 @@ export function App() {
         and dismissible on an ending so someone can watch and download the film they just made before
         deciding to sign up.
       */}
-      {me && !me.canGenerate && gateArmed && !gateDismissed && (
-        <SignInGate me={me} onDismiss={phase === "failed" || phase === "escaped" ? () => setGateDismissed(true) : undefined} />
+      {gateUp && me && (
+        <SignInGate
+          me={me}
+          onDismiss={phase === "failed" || phase === "escaped" ? () => setGateDismissed(true) : undefined}
+          // The run they just finished is what they would be sharing for another go.
+          nodeId={playing?.id ?? current?.id}
+          onEarned={() => void fetchMe().then(setMe).catch(() => {})}
+        />
       )}
     </main>
   );

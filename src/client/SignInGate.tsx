@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { ShareBar } from "./ShareBar";
 import { apiFetch } from "./viewer";
+
+export type Allowance = { mode: "unlimited" | "games" | "generations"; count: number };
 
 export type Me = {
   signedIn: boolean;
@@ -9,10 +12,21 @@ export type Me = {
   providers: string[];
   /** Email + password sign-up and sign-in are available. */
   emailPassword?: boolean;
-  policy: string;
+  /** What this viewer's side of the sign-in line is allowed. */
+  allowance: Allowance;
   used: { generations: number; games: number };
+  /** Extra goes earned by sharing. */
+  bonus: number;
+  /** Left on the active axis; null when unlimited. */
+  remaining: number | null;
+  /** When the allowance refills; null when it never does. */
+  resetsAt: string | null;
   canGenerate: boolean;
+  /** Signing in is what would unblock them. False when they are a member who has used their allowance. */
+  requiresSignIn: boolean;
   blockedReason: string | null;
+  /** Sharing a finished run currently earns another go. */
+  shareGrantsGame: boolean;
 };
 
 export const fetchMe = () => apiFetch("/api/me").then(r => r.json() as Promise<Me>);
@@ -33,9 +47,23 @@ const PROVIDER_MARKS: Record<string, string> = {
  * Sign-in is handled by Better Auth's own endpoints: sending the browser to /api/auth/sign-in/social starts
  * the OAuth round trip and returns it here, so there is no token handling in the client at all.
  */
-export function SignInGate({ me, onDismiss }: { me: Me; onDismiss?: () => void }) {
+export function SignInGate({ me, onDismiss, nodeId, onEarned }: { me: Me; onDismiss?: () => void; nodeId?: string; onEarned?: () => void }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+
+  // Out of goes with no sign-in to offer: a member who has used their allowance, or a server where signing
+  // in buys nothing more. Showing them provider buttons would be a dead end, so they get their own panel.
+  if (!me.requiresSignIn) {
+    return (
+      <Panel title={me.blockedReason ?? "That's your lot for now"} onDismiss={onDismiss}>
+        <p className="mt-2 font-mono text-xs leading-relaxed text-white/50">
+          {/* The film is saved server-side and its link works for anyone, signed in or not - never suggest otherwise. */}
+          Your film is saved and its share link keeps working. {refillsIn(me.resetsAt) ?? "Come back later for more."}
+        </p>
+        {me.shareGrantsGame && nodeId && <ShareForMore nodeId={nodeId} onEarned={onEarned} />}
+      </Panel>
+    );
+  }
 
   /**
    * Better Auth's social sign-in is a POST that answers with the provider's authorisation URL; it is not a
@@ -60,16 +88,17 @@ export function SignInGate({ me, onDismiss }: { me: Me; onDismiss?: () => void }
   };
 
   return (
-    <div className="absolute inset-0 z-50 grid place-items-center bg-black/80 p-6 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-lg border border-sodium/40 bg-[#0b0e13] p-6 text-center">
-        <div className="font-display text-xs font-semibold tracking-[0.35em] text-teal">CHECKPOINT</div>
-        <h2 className="mt-3 font-display text-2xl font-bold text-white">{me.blockedReason ?? "Sign in to keep playing"}</h2>
-        <p className="mt-2 font-mono text-xs leading-relaxed text-white/50">
-          Your escape so far is saved. Signing in keeps it, and lets you start a new one.
-        </p>
+    <Panel title={me.blockedReason ?? "Sign in to keep playing"} onDismiss={onDismiss}>
+      <p className="mt-2 font-mono text-xs leading-relaxed text-white/50">
+        {/* Never imply the game starts charging after sign-in: it does not, and people read a gate as a paywall. */}
+        Free, no card, nothing to install.{" "}
+        {played(me)
+          ? "It gives you more to direct — the film you just made is saved either way, and its share link already works."
+          : "One tap and you're directing."}
+      </p>
 
-        {me.authEnabled && (me.providers.length > 0 || me.emailPassword) ? (
-          <div className="mt-5 flex flex-col gap-2">
+      {me.authEnabled && (me.providers.length > 0 || me.emailPassword) ? (
+        <div className="mt-5 flex flex-col gap-2">
             {me.providers.map(p => (
               <button
                 key={p}
@@ -96,21 +125,98 @@ export function SignInGate({ me, onDismiss }: { me: Me; onDismiss?: () => void }
               </>
             )}
             {error && <div className="rounded border border-siren-red/40 bg-siren-red/10 p-2 text-xs text-siren-red">{error}</div>}
-          </div>
-        ) : (
-          // Should not normally be reachable: the server stops enforcing sign-in when no provider works. Kept as
-          // a safe fallback in player language, since this screen is seen by the public, not the operator.
-          <p className="mt-5 rounded border border-white/15 bg-white/5 p-3 font-mono text-xs text-white/60">
-            Sign-in is temporarily unavailable. Please try again in a little while.
-          </p>
-        )}
+        </div>
+      ) : (
+        // Should not normally be reachable: the server stops enforcing sign-in when no provider works. Kept as
+        // a safe fallback in player language, since this screen is seen by the public, not the operator.
+        <p className="mt-5 rounded border border-white/15 bg-white/5 p-3 font-mono text-xs text-white/60">
+          Sign-in is temporarily unavailable. Please try again in a little while.
+        </p>
+      )}
 
+      {/* Nothing to share before they have played, so the offer only appears once there is a run. */}
+      {me.shareGrantsGame && nodeId && played(me) && <ShareForMore nodeId={nodeId} onEarned={onEarned} or />}
+    </Panel>
+  );
+}
+
+/** Whether this viewer has anything of their own yet - a run to share, an escape worth saving. */
+const played = (me: Me) => me.used.generations > 0 || me.used.games > 0;
+
+/** "More tomorrow." / "More in 6 days." - or nothing, when the allowance never refills. */
+function refillsIn(resetsAt: string | null) {
+  if (!resetsAt) return null;
+  const hours = (Date.parse(resetsAt) - Date.now()) / 3_600_000;
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  if (hours < 1) return "More in a few minutes.";
+  if (hours < 24) return `More in ${Math.round(hours)} ${Math.round(hours) === 1 ? "hour" : "hours"}.`;
+  const days = Math.ceil(hours / 24);
+  return days === 1 ? "More tomorrow." : `More in ${days} days.`;
+}
+
+/** The gate's frame: same card whether the answer is "sign in" or "come back later". */
+function Panel({ title, children, onDismiss }: { title: string; children: ReactNode; onDismiss?: () => void }) {
+  return (
+    <div className="absolute inset-0 z-50 grid place-items-center bg-black/80 p-6 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-lg border border-sodium/40 bg-[#0b0e13] p-6 text-center">
+        <div className="font-display text-xs font-semibold tracking-[0.35em] text-teal">CHECKPOINT</div>
+        <h2 className="mt-3 font-display text-2xl font-bold text-white">{title}</h2>
+        {children}
         {onDismiss && (
           <button onClick={onDismiss} className="mt-4 font-mono text-[11px] tracking-widest text-white/35 underline underline-offset-4 hover:text-white/70">
             NOT NOW
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * "Share your run for another go."
+ *
+ * This is the same ShareBar the ending screens use, not a second, weaker share: on a phone that means the
+ * OS sheet with the actual MP4 in it (the only keyless route to Instagram and TikTok), and on a desktop the
+ * platform carousel and downloads. The credit is claimed from its onShared callback, so it is earned by a
+ * real share - handing the film to a platform, the sheet or the clipboard - rather than by opening a menu.
+ */
+function ShareForMore({ nodeId, onEarned, or }: { nodeId: string; onEarned?: () => void; or?: boolean }) {
+  const [state, setState] = useState<"idle" | "done" | "already">("idle");
+
+  const claim = async () => {
+    if (state !== "idle") return;
+    const res = await apiFetch("/api/share-credit", { method: "POST", body: JSON.stringify({ nodeId }) })
+      .then(r => r.json())
+      .catch(() => ({ granted: false }));
+    setState(res.granted ? "done" : "already");
+    // Leave the gate up for a beat so the reward is seen, then let App re-read the allowance and close it.
+    if (res.granted) setTimeout(() => onEarned?.(), 1200);
+  };
+
+  return (
+    <div className={or ? "mt-4" : "mt-4 border-t border-white/10 pt-4"}>
+      {/* Offered alongside sign-in: make it read as the other way out, not as a second step. */}
+      {or && (
+        <div className="my-3 flex items-center gap-3 font-mono text-[10px] tracking-widest text-white/30">
+          <span className="h-px flex-1 bg-white/10" />
+          OR
+          <span className="h-px flex-1 bg-white/10" />
+        </div>
+      )}
+      <ShareBar
+        nodeId={nodeId}
+        outcome="run"
+        label="SHARE FOR ANOTHER GO"
+        accent="w-full border-teal/60 bg-teal/10 text-teal hover:bg-teal hover:text-black"
+        onShared={() => void claim()}
+      />
+      <p className="mt-2 font-mono text-[10px] leading-relaxed text-white/35">
+        {state === "done"
+          ? "Nice — one more go unlocked."
+          : state === "already"
+            ? "This run has already earned its extra go. Finish another to share again."
+            : "Share it anywhere and you get one more go."}
+      </p>
     </div>
   );
 }

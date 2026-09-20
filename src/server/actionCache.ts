@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { mediaPath } from "./config";
 import { db, logEvent } from "./db";
 import { scheduleArchiveBackup } from "./archiveBackup";
-import { chatJSON } from "./gmi";
+import { chatJSON } from "./llm";
 import type { Outcome } from "./pipeline";
 import { deleteObject, isGeneratedUrl, keyForMediaUrl, r2Enabled } from "./storage";
 

@@ -85,7 +85,7 @@ export type World = {
 };
 export const world = worldJson as World;
 
-import { CREATIVITY_POINT_OPTIONS, GUEST_POLICIES, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type GuestPolicy, type LlmModelId, type OutcomeMode, type VideoProvider } from "./constants";
+import { ALLOWANCE_MAX, ALLOWANCE_MODES, RESET_DAYS_MAX, CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type Allowance, type AllowanceMode, type LlmModelId, type OutcomeMode, type VideoProvider } from "./constants";
 export { CREATIVITY_POINT_OPTIONS, OUTCOME_MODES, type OutcomeMode };
 
 export type Settings = {
@@ -117,8 +117,12 @@ export type Settings = {
   analysisModel: LlmModelId;
   /** LLM 2 (shot writer): quality of the H3 prompt matters more. */
   writerModel: LlmModelId;
-  /** How much an unsigned-in viewer may do before being asked to sign in. */
-  guestPolicy: GuestPolicy;
+  /** What a visitor who has not signed in may do before the gate falls. */
+  guestAllowance: Allowance;
+  /** What a signed-in member may do. Unlimited by default: signing in should feel like the generous side. */
+  memberAllowance: Allowance;
+  /** Sharing a finished run grants one more game (or one more step, in generations mode). */
+  shareGrantsGame: boolean;
 };
 
 const defaults: Settings = {
@@ -138,19 +142,72 @@ const defaults: Settings = {
   analysisModel: "google/gemini-3.5-flash-lite",
   writerModel: "google/gemini-3.5-flash-lite",
   // Existing deployments keep behaving as they did until this is deliberately tightened.
-  guestPolicy: "unlimited",
+  // Windows are set even while the modes are unlimited, so turning a limit on later behaves sensibly at once:
+  // a guest's allowance refills slowly (they are strangers), a member's daily (they came back).
+  guestAllowance: { mode: "unlimited", count: 0, resetDays: 10 },
+  memberAllowance: { mode: "unlimited", count: 0, resetDays: 1 },
+  shareGrantsGame: false,
 };
+
+/** Settings saved before allowances were numbers. Read once, then written back in the new shape. */
+const LEGACY_GUEST_POLICIES: Record<string, Omit<Allowance, "resetDays">> = {
+  unlimited: { mode: "unlimited", count: 0 },
+  "one-game": { mode: "games", count: 1 },
+  "one-generation": { mode: "generations", count: 1 },
+  none: { mode: "generations", count: 0 },
+};
+
+const readAllowance = (value: unknown, fallback: Allowance): Allowance => {
+  if (!value || typeof value !== "object") return fallback;
+  const { mode, count, resetDays } = value as Partial<Allowance>;
+  if (!ALLOWANCE_MODES.includes(mode as AllowanceMode)) return fallback;
+  const whole = (n: unknown, max: number, missing: number) =>
+    n === undefined ? missing : Math.min(max, Math.max(0, Math.round(Number(n) || 0)));
+  return {
+    mode: mode as AllowanceMode,
+    count: whole(count, ALLOWANCE_MAX, 0),
+    // A settings file written before windows existed keeps the default rather than becoming "never refills".
+    resetDays: whole(resetDays, RESET_DAYS_MAX, fallback.resetDays),
+  };
+};
+
+/**
+ * Live settings, parked on globalThis like the database handle.
+ *
+ * `bun --hot` keeps older copies of this module alive, each with its own `settings` binding. Without a
+ * shared home, a write from a stale copy re-saves ITS values over the file, silently resurrecting a
+ * setting someone had just changed - which is how a guest allowance of "none" turned back into "one free
+ * game" mid-session here, and let a generation through that should have been gated.
+ */
+const live = globalThis as unknown as { __prisonSettings?: Settings };
 
 let settings: Settings = defaults;
 if (existsSync(SETTINGS_FILE)) {
-  const { llmModel: _legacy, ...saved } = await Bun.file(SETTINGS_FILE).json();
+  const { llmModel: _legacy, guestPolicy, ...saved } = await Bun.file(SETTINGS_FILE).json();
   settings = { ...defaults, ...saved };
+  // A deployment configured under the old named policies keeps the same gate, expressed as numbers.
+  if (guestPolicy && !saved.guestAllowance) {
+    const legacy = LEGACY_GUEST_POLICIES[guestPolicy];
+    settings.guestAllowance = legacy ? { ...legacy, resetDays: defaults.guestAllowance.resetDays } : defaults.guestAllowance;
+  }
+  settings.guestAllowance = readAllowance(settings.guestAllowance, defaults.guestAllowance);
+  settings.memberAllowance = readAllowance(settings.memberAllowance, defaults.memberAllowance);
 }
 
-export const getSettings = (): Settings =>
-  providerAvailable(settings.videoProvider) ? settings : { ...settings, videoProvider: preferredVideoProvider() };
+// Whatever this module read from disk only counts if nothing else has settings in hand already.
+live.__prisonSettings ??= settings;
+
+/** The one live settings object, however many copies of this module are in memory. */
+const current = () => live.__prisonSettings ?? settings;
+
+export const getSettings = (): Settings => {
+  const now = current();
+  return providerAvailable(now.videoProvider) ? now : { ...now, videoProvider: preferredVideoProvider() };
+};
 
 export async function updateSettings(patch: Partial<Settings>) {
+  // Merged onto the live object, never onto this module's own stale copy.
+  const settings = current();
   const next = { ...settings, ...patch };
   if (!OUTCOME_MODES.includes(next.outcomeMode)) next.outcomeMode = settings.outcomeMode;
   const validModel = (id: string) => LLM_MODEL_OPTIONS.some(m => m.id === id);
@@ -165,13 +222,15 @@ export async function updateSettings(patch: Partial<Settings>) {
   next.reuseActions = Boolean(next.reuseActions);
   next.showClipSource = Boolean(next.showClipSource);
   next.showDebugSpend = Boolean(next.showDebugSpend);
-  if (!GUEST_POLICIES.includes(next.guestPolicy)) next.guestPolicy = settings.guestPolicy;
+  next.guestAllowance = readAllowance(next.guestAllowance, settings.guestAllowance);
+  next.memberAllowance = readAllowance(next.memberAllowance, settings.memberAllowance);
+  next.shareGrantsGame = Boolean(next.shareGrantsGame);
   if (!VIDEO_PROVIDERS.includes(next.videoProvider)) next.videoProvider = settings.videoProvider;
   if (!providerAvailable(next.videoProvider)) next.videoProvider = preferredVideoProvider();
   next.maskyDraft = Boolean(next.maskyDraft);
-  settings = next;
-  await Bun.write(SETTINGS_FILE, JSON.stringify(settings, null, 2));
-  return settings;
+  live.__prisonSettings = next;
+  await Bun.write(SETTINGS_FILE, JSON.stringify(next, null, 2));
+  return next;
 }
 
 export const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));

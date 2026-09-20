@@ -14,5 +14,15 @@
   "matchModel": "google/gemma-4-26b-a4b-it",
   "analysisModel": "google/gemini-3.5-flash-lite",
   "writerModel": "google/gemini-3.5-flash-lite",
-  "guestPolicy": "none"
+  "guestAllowance": {
+    "mode": "generations",
+    "count": 0,
+    "resetDays": 10
+  },
+  "memberAllowance": {
+    "mode": "unlimited",
+    "count": 0,
+    "resetDays": 1
+  },
+  "shareGrantsGame": false
 }

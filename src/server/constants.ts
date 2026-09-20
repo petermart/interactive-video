@@ -25,22 +25,50 @@ export type VideoProvider = (typeof VIDEO_PROVIDERS)[number];
 export const SCENE_TEXT_SECS = 15;
 
 /**
- * How much a viewer may do before signing in. The gate exists to make signing in worthwhile without
- * making the first taste of the game cost anything, so the default lets someone finish one story.
- * - unlimited:      no sign-in required, ever (how the hackathon build behaved).
- * - one-game:       play one story to its ending, then sign in to start another.
- * - one-generation: a single step, then sign in.
- * - none:           sign in before generating anything.
+ * How much one visitor may do, counted either in finished games or in generated steps.
+ *
+ * Two of these are configured: one for guests (where running out means "sign in") and one for signed-in
+ * members (where running out means "that's your lot for now"). Games and generations are alternatives, not
+ * both: when the mode is "games" the generation number is ignored entirely, which is what makes "one full
+ * story, however many steps it takes" expressible.
  */
-export const GUEST_POLICIES = ["unlimited", "one-game", "one-generation", "none"] as const;
-export type GuestPolicy = (typeof GUEST_POLICIES)[number];
-
-export const GUEST_POLICY_LABELS: Record<GuestPolicy, string> = {
-  unlimited: "No sign-in needed",
-  "one-game": "One full game, then sign in",
-  "one-generation": "One generation, then sign in",
-  none: "Sign in before generating",
+export const ALLOWANCE_MODES = ["unlimited", "games", "generations"] as const;
+export type AllowanceMode = (typeof ALLOWANCE_MODES)[number];
+export type Allowance = {
+  mode: AllowanceMode;
+  count: number;
+  /**
+   * Days before the allowance refills. The clock starts at the viewer's first move of a window, so it is a
+   * rolling window per person, not a global reset hour that everyone races. 0 means it never refills.
+   */
+  resetDays: number;
 };
+
+/** Sanity cap for the admin inputs. Not a business rule - just keeps a typo from reading as unlimited. */
+export const ALLOWANCE_MAX = 99;
+export const RESET_DAYS_MAX = 365;
+
+export const ALLOWANCE_MODE_LABELS: Record<AllowanceMode, string> = {
+  unlimited: "Unlimited",
+  games: "Finished games",
+  generations: "Generated steps",
+};
+
+/** One line of plain English for the admin panel and the player-facing gate. */
+export function describeAllowance({ mode, count, resetDays }: Allowance) {
+  if (mode === "unlimited") return "as much as they like";
+  const unit = mode === "games" ? "game" : "generation";
+  if (count === 0) return `nothing (blocked before the first ${unit})`;
+  const every = resetDays > 0 ? ` every ${resetDays === 1 ? "day" : `${resetDays} days`}` : " ever";
+  return `${count} ${unit}${count === 1 ? "" : "s"}${every}`;
+}
+
+/**
+ * What one earned go is worth. A share buys a whole go, not a single step: in games mode that is one more
+ * story, and in generations mode a fresh allowance of steps - so someone on "3 generations" who shares gets
+ * 3 more, not 1. Anything less would be a worse deal than the wording promises.
+ */
+export const goSize = ({ mode, count }: Allowance) => (mode === "games" ? 1 : Math.max(1, count));
 
 /**
  * LLM choices for the admin dropdowns. Speeds measured 2026-09-13 on GMI with the real diagnostic prompt
