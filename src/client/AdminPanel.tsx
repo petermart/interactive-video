@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ALLOWANCE_MAX, ALLOWANCE_MODE_LABELS, ALLOWANCE_MODES, RESET_DAYS_MAX, CREATIVITY_POINT_OPTIONS, describeAllowance, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type Allowance, type AllowanceMode, type LlmModelId, type OutcomeMode, type VideoProvider } from "../server/constants";
+import { ALLOWANCE_MAX, ALLOWANCE_MODE_LABELS, ALLOWANCE_MODES, NETWORK_TOLERANCE_MAX, RESET_DAYS_MAX, SHARE_BONUS_MAX, CREATIVITY_POINT_OPTIONS, describeAllowance, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type Allowance, type AllowanceMode, type LlmModelId, type OutcomeMode, type VideoProvider } from "../server/constants";
 import { AdminAuth } from "./AdminAuth";
 import { AdminCredits, useAdminPassword } from "./AdminCredits";
 import { api, type Job, type Settings, type SettingsView } from "./api";
@@ -230,16 +230,26 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
               up under Sign-in providers above. A signed-in limit still applies.
             </div>
           )}
-          <Toggle
-            label="Sharing a run earns one more go (a whole game)"
-            checked={settings.shareGrantsGame}
-            onChange={v => save({ shareGrantsGame: v })}
+          <CountField
+            label="Share bonuses per refill"
+            value={settings.shareBonusMax}
+            max={SHARE_BONUS_MAX}
+            unit={settings.shareBonusMax === 0 ? "off" : settings.shareBonusMax === 1 ? "go" : "goes"}
+            onChange={v => save({ shareBonusMax: v })}
+          />
+          <CountField
+            label="Guest limit per network"
+            value={settings.networkTolerance}
+            max={NETWORK_TOLERANCE_MAX}
+            unit={settings.networkTolerance === 0 ? "off" : "× a guest's"}
+            onChange={v => save({ networkTolerance: v })}
           />
           <div className="mb-3 mt-1 text-xs text-white/40">
             Guests get {describeAllowance(settings.guestAllowance)}; signed in, {describeAllowance(settings.memberAllowance)}.
             {" "}In games mode a story runs as long as it likes and the step count is ignored. Guests are counted per
             browser, with a looser limit per network so shared wifi isn't blocked by one person; signed-in play is
-            counted per account.
+            counted per account. Each share bonus is a whole game (or a whole allowance of steps), one per finished
+            run, and they reset when the allowance refills.
           </div>
 
           <div className="text-white/70">Success decided by</div>
@@ -413,6 +423,26 @@ function ModelSelect(props: { label: string; value: LlmModelId; onChange: (id: L
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+/** A small whole number with a trailing unit; 0 reads as "off" wherever the caller says so. */
+function CountField(props: { label: string; value: number; max: number; unit: string; onChange: (v: number) => void }) {
+  return (
+    <label className="mt-1 flex items-center justify-between gap-3 text-white/70">
+      <span>{props.label}</span>
+      <span className="flex items-center gap-1.5 text-[11px] text-white/40">
+        <input
+          type="number"
+          min={0}
+          max={props.max}
+          value={props.value}
+          onChange={e => props.onChange(Math.max(0, Math.min(props.max, Math.round(Number(e.target.value) || 0))))}
+          className="w-12 rounded border border-white/15 bg-white/5 px-1.5 py-0.5 text-right text-xs text-white"
+        />
+        <span className="w-16">{props.unit}</span>
+      </span>
     </label>
   );
 }

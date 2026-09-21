@@ -47,6 +47,8 @@ export type Allowance = {
 /** Sanity cap for the admin inputs. Not a business rule - just keeps a typo from reading as unlimited. */
 export const ALLOWANCE_MAX = 99;
 export const RESET_DAYS_MAX = 365;
+export const SHARE_BONUS_MAX = 20;
+export const NETWORK_TOLERANCE_MAX = 100;
 
 export const ALLOWANCE_MODE_LABELS: Record<AllowanceMode, string> = {
   unlimited: "Unlimited",

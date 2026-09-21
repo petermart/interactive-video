@@ -25,7 +25,7 @@ export type Me = {
   /** Signing in is what would unblock them. False when they are a member who has used their allowance. */
   requiresSignIn: boolean;
   blockedReason: string | null;
-  /** Sharing a finished run currently earns another go. */
+  /** Sharing a finished run still earns another go (off, or this window's share bonuses are used up). */
   shareGrantsGame: boolean;
 };
 

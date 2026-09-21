@@ -44,9 +44,10 @@ const COOKIE = "sp_guest";
 const COOKIE_MAX_AGE = 365 * 24 * 60 * 60;
 
 /**
- * How many times over the per-visitor allowance a single IP may go before it is treated as one person
- * cycling private windows rather than a room full of people. Deliberately generous: blocking a real
- * audience at a live demo is a far worse failure than letting one determined person have extra turns.
+ * The default for how many times over the per-visitor allowance a single IP may go before it is treated as
+ * one person cycling private windows rather than a room full of people (an admin setting). Deliberately
+ * generous: blocking a real audience at a live demo is a far worse failure than letting one determined
+ * person have extra turns.
  */
 const IP_TOLERANCE = 5;
 
@@ -188,7 +189,7 @@ export type QuotaVerdict = {
  * ALLOWED, and the gate falls when usage reaches the number - 1 game means blocked after one ending, not
  * before the first move.
  */
-export function checkQuota(viewer: Viewer, allowance: Allowance, memberAllowance?: Allowance): QuotaVerdict {
+export function checkQuota(viewer: Viewer, allowance: Allowance, memberAllowance?: Allowance, networkTolerance = IP_TOLERANCE): QuotaVerdict {
   const member = viewerIsMember(viewer);
   const usage = readUsage(ledgerOf(viewer).id, allowance.resetDays);
   const used = { generations: usage.generations, games: usage.games_completed };
@@ -200,12 +201,12 @@ export function checkQuota(viewer: Viewer, allowance: Allowance, memberAllowance
   // Each earned go is worth a whole game, or a whole allowance of steps - never a single step.
   const cap = allowance.count + usage.bonus * goSize(allowance);
   const spent = games ? usage.games_completed : usage.generations;
-  // A guest can also be caught by their network's much looser limit: cookies are cheap to clear.
-  const networkSpent = member ? 0 : (() => {
+  // A guest can also be caught by their network's much looser limit: cookies are cheap to clear. 0 = no limit.
+  const networkSpent = member || !networkTolerance ? 0 : (() => {
     const ip = readUsage(`ip:${viewer.guest.ip}`, allowance.resetDays);
     return games ? ip.games_completed : ip.generations;
   })();
-  const blocked = spent >= cap || networkSpent >= (cap + 1) * IP_TOLERANCE;
+  const blocked = spent >= cap || (networkTolerance > 0 && networkSpent >= (cap + 1) * networkTolerance);
   const remaining = Math.max(0, cap - spent);
   if (!blocked) return { allowed: true, requiresSignIn: false, reason: "", remaining, ...base };
 
@@ -259,20 +260,23 @@ function record(viewer: Viewer, column: "generations" | "games_completed", reset
 }
 
 /**
- * Pays out the "share your run for another go" offer: one credit per finished run, whoever they are.
- * Returns false when this run has already been paid for, so reopening the share sheet earns nothing.
+ * Pays out the "share your run for another go" offer: one credit per finished run, up to `max` per allowance
+ * window. Returns false when this run has already been paid for, so reopening the share sheet earns nothing,
+ * or when the window's credits are used up, so sharing run after run is not an endless supply.
  */
-export function grantShareCredit(viewer: Viewer, nodeId: string, allowance: Allowance) {
+export function grantShareCredit(viewer: Viewer, nodeId: string, allowance: Allowance, max: number) {
   const { id: ledgerId, kind } = ledgerOf(viewer);
   const key = `${ledgerId}:${nodeId}`;
   return (
     tryQuery(
       () => {
+        if (max <= 0) return false;
         const claimed = db.query(`SELECT 1 FROM share_credits WHERE id = ?`).get(key);
         if (claimed) return false;
-        db.query(`INSERT INTO share_credits (id) VALUES (?)`).run(key);
         // Touch first: a credit earned after the window turned over belongs to the new window, not the old.
         touch(ledgerId, kind, allowance.resetDays);
+        if (readUsage(ledgerId, allowance.resetDays).bonus >= max) return false;
+        db.query(`INSERT INTO share_credits (id) VALUES (?)`).run(key);
         bump("bonus").run({ $id: ledgerId });
         logEvent({ kind: "job", label: "share earned another game", response: { member: viewerIsMember(viewer) } });
         return true;

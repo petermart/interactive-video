@@ -166,6 +166,8 @@ export function tryExec(label: string, sql: string) {
     db.exec(sql);
     return true;
   } catch (err) {
+    // An ADD COLUMN migration runs on every boot; after the first, "already there" is the expected outcome.
+    if (/duplicate column name/i.test(String(err))) return true;
     console.error(`[schema] ${label} unavailable: ${String(err)}`);
     return false;
   }

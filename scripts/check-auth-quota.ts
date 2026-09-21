@@ -115,12 +115,34 @@ const freshMember = (): Viewer => ({ ...freshGuest(), userId: `test-user-${crypt
   const v = freshGuest();
   recordGameCompleted(v, UNLIMITED);
   check("1 game: blocked before sharing", !checkQuota(v, games(1)).allowed);
-  check("share grants a credit", grantShareCredit(v, "node-1", games(1)));
+  check("share grants a credit", grantShareCredit(v, "node-1", games(1), 5));
   check("1 game + shared: allowed again", checkQuota(v, games(1)).allowed);
-  check("the same run cannot be cashed twice", !grantShareCredit(v, "node-1", games(1)));
+  check("the same run cannot be cashed twice", !grantShareCredit(v, "node-1", games(1), 5));
   recordGameCompleted(v, UNLIMITED);
   check("1 game + shared: blocked after the extra story", !checkQuota(v, games(1)).allowed);
-  check("a different run can be cashed", grantShareCredit(v, "node-2", games(1)));
+  check("a different run can be cashed", grantShareCredit(v, "node-2", games(1), 5));
+}
+
+// share bonuses are capped per window, and 0 turns them off
+{
+  const v = freshGuest();
+  check("cap 0: sharing earns nothing", !grantShareCredit(v, "cap-0", games(1), 0));
+  check("cap 2: first share pays", grantShareCredit(v, "cap-a", games(1), 2));
+  check("cap 2: second share pays", grantShareCredit(v, "cap-b", games(1), 2));
+  check("cap 2: third share is refused", !grantShareCredit(v, "cap-c", games(1), 2));
+  check("cap 2: bonus stops at the cap", checkQuota(v, games(1)).bonus === 2, `bonus ${checkQuota(v, games(1)).bonus}`);
+  check("a refused run can still pay once the cap is raised", grantShareCredit(v, "cap-c", games(1), 3));
+}
+
+// the per-network limit follows the setting, and 0 turns it off
+{
+  const shared = `10.9.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`;
+  const onNet = (): Viewer => ({ guest: { ...freshGuest().guest, ip: shared }, userId: null });
+  // Tolerance 2 on a 1-step allowance: the network may spend (1 + 1) * 2 = 4 before guests on it are blocked.
+  for (let i = 0; i < 4; i++) recordGeneration(onNet(), steps(1));
+  check("network at its limit blocks a brand-new guest", !checkQuota(onNet(), steps(1), undefined, 2).allowed);
+  check("a looser network limit lets them through", checkQuota(onNet(), steps(1), undefined, 5).allowed);
+  check("network limit 0 means no network limit", checkQuota(onNet(), steps(1), undefined, 0).allowed);
 }
 
 // in generations mode a share is worth a whole go, not a single step
@@ -129,7 +151,7 @@ const freshMember = (): Viewer => ({ ...freshGuest(), userId: `test-user-${crypt
   const three = steps(3);
   for (let i = 0; i < 3; i++) recordGeneration(v, three);
   check("3 generations: blocked before sharing", !checkQuota(v, three).allowed);
-  grantShareCredit(v, "node-gen", three);
+  grantShareCredit(v, "node-gen", three, 5);
   const verdict = checkQuota(v, three);
   check("3 generations + shared: a full allowance more, not one step", verdict.allowed && verdict.remaining === 3, `remaining ${verdict.remaining}`);
 }
@@ -139,7 +161,7 @@ const freshMember = (): Viewer => ({ ...freshGuest(), userId: `test-user-${crypt
   const m = freshMember();
   recordGameCompleted(m, games(1));
   check("member at the game cap is blocked", !checkQuota(m, games(1)).allowed);
-  check("member can cash a share", grantShareCredit(m, "node-member", games(1)));
+  check("member can cash a share", grantShareCredit(m, "node-member", games(1), 5));
   check("member: allowed again after sharing", checkQuota(m, games(1)).allowed);
 }
 

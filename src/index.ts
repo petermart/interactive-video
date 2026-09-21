@@ -85,7 +85,8 @@ const allowanceFor = (viewer: Viewer) => {
 };
 
 /** The verdict plus everything the client needs to explain it. */
-const quotaFor = (viewer: Viewer) => checkQuota(viewer, allowanceFor(viewer), getSettings().memberAllowance);
+const quotaFor = (viewer: Viewer) =>
+  checkQuota(viewer, allowanceFor(viewer), getSettings().memberAllowance, getSettings().networkTolerance);
 
 const viewerFor = async (req: Request): Promise<Viewer> => ({ guest: identifyGuest(req), userId: (await currentUser(req))?.id ?? null });
 
@@ -438,8 +439,8 @@ const server = serve({
           canGenerate: verdict.allowed,
           requiresSignIn: verdict.requiresSignIn,
           blockedReason: verdict.allowed ? null : verdict.reason,
-          // Whether sharing an ending is currently worth an extra go, so the gate can offer it.
-          shareGrantsGame: getSettings().shareGrantsGame,
+          // Whether sharing an ending is still worth an extra go this window, so the gate only offers it then.
+          shareGrantsGame: verdict.bonus < getSettings().shareBonusMax,
         },
         { headers: viewer.guest.issueCookie ? { "set-cookie": guestCookie(viewer.guest.cookieId) } : {} },
       );
@@ -461,11 +462,12 @@ const server = serve({
      */
     "/api/share-credit": {
       POST: async req => {
-        if (!getSettings().shareGrantsGame) return Response.json({ granted: false, reason: "Not offered" }, { status: 400 });
+        const { shareBonusMax } = getSettings();
+        if (!shareBonusMax) return Response.json({ granted: false, reason: "Not offered" }, { status: 400 });
         const { nodeId } = await req.json().catch(() => ({}));
         if (!nodeId || typeof nodeId !== "string") return Response.json({ error: "Which run?" }, { status: 400 });
         const viewer = await viewerFor(req);
-        const granted = grantShareCredit(viewer, nodeId, allowanceFor(viewer));
+        const granted = grantShareCredit(viewer, nodeId, allowanceFor(viewer), shareBonusMax);
         return Response.json({ granted, ...quotaFor(viewer) });
       },
     },

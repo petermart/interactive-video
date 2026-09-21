@@ -85,7 +85,7 @@ export type World = {
 };
 export const world = worldJson as World;
 
-import { ALLOWANCE_MAX, ALLOWANCE_MODES, RESET_DAYS_MAX, CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type Allowance, type AllowanceMode, type LlmModelId, type OutcomeMode, type VideoProvider } from "./constants";
+import { ALLOWANCE_MAX, ALLOWANCE_MODES, NETWORK_TOLERANCE_MAX, RESET_DAYS_MAX, SHARE_BONUS_MAX, CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type Allowance, type AllowanceMode, type LlmModelId, type OutcomeMode, type VideoProvider } from "./constants";
 export { CREATIVITY_POINT_OPTIONS, OUTCOME_MODES, type OutcomeMode };
 
 export type Settings = {
@@ -121,8 +121,16 @@ export type Settings = {
   guestAllowance: Allowance;
   /** What a signed-in member may do. Unlimited by default: signing in should feel like the generous side. */
   memberAllowance: Allowance;
-  /** Sharing a finished run grants one more game (or one more step, in generations mode). */
-  shareGrantsGame: boolean;
+  /**
+   * How many times sharing a finished run can earn one more go, per allowance window (it resets when the
+   * allowance refills). 0 turns the offer off. Each share is worth a whole game, or a whole allowance of steps.
+   */
+  shareBonusMax: number;
+  /**
+   * How many times over a guest's allowance one network (IP) may use before guests on it are blocked too.
+   * Stops clearing cookies from being a reset button without blocking a room on shared wifi. 0 turns it off.
+   */
+  networkTolerance: number;
 };
 
 const defaults: Settings = {
@@ -146,7 +154,8 @@ const defaults: Settings = {
   // a guest's allowance refills slowly (they are strangers), a member's daily (they came back).
   guestAllowance: { mode: "unlimited", count: 0, resetDays: 10 },
   memberAllowance: { mode: "unlimited", count: 0, resetDays: 1 },
-  shareGrantsGame: false,
+  shareBonusMax: 0,
+  networkTolerance: 5,
 };
 
 /** Settings saved before allowances were numbers. Read once, then written back in the new shape. */
@@ -183,8 +192,10 @@ const live = globalThis as unknown as { __prisonSettings?: Settings };
 
 let settings: Settings = defaults;
 if (existsSync(SETTINGS_FILE)) {
-  const { llmModel: _legacy, guestPolicy, ...saved } = await Bun.file(SETTINGS_FILE).json();
+  const { llmModel: _legacy, guestPolicy, shareGrantsGame, ...saved } = await Bun.file(SETTINGS_FILE).json();
   settings = { ...defaults, ...saved };
+  // Sharing used to be an on/off switch with no cap; a deployment that had it on keeps it, capped at one.
+  if (saved.shareBonusMax === undefined && shareGrantsGame) settings.shareBonusMax = 1;
   // A deployment configured under the old named policies keeps the same gate, expressed as numbers.
   if (guestPolicy && !saved.guestAllowance) {
     const legacy = LEGACY_GUEST_POLICIES[guestPolicy];
@@ -224,7 +235,8 @@ export async function updateSettings(patch: Partial<Settings>) {
   next.showDebugSpend = Boolean(next.showDebugSpend);
   next.guestAllowance = readAllowance(next.guestAllowance, settings.guestAllowance);
   next.memberAllowance = readAllowance(next.memberAllowance, settings.memberAllowance);
-  next.shareGrantsGame = Boolean(next.shareGrantsGame);
+  next.shareBonusMax = clamp(Math.round(Number(next.shareBonusMax) || 0), 0, SHARE_BONUS_MAX);
+  next.networkTolerance = clamp(Math.round(Number(next.networkTolerance) || 0), 0, NETWORK_TOLERANCE_MAX);
   if (!VIDEO_PROVIDERS.includes(next.videoProvider)) next.videoProvider = settings.videoProvider;
   if (!providerAvailable(next.videoProvider)) next.videoProvider = preferredVideoProvider();
   next.maskyDraft = Boolean(next.maskyDraft);
