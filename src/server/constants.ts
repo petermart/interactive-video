@@ -48,6 +48,92 @@ export type Allowance = {
 export const ALLOWANCE_MAX = 99;
 export const RESET_DAYS_MAX = 365;
 export const SHARE_BONUS_MAX = 20;
+
+/**
+ * What players can buy once their allowance runs out, if anything: packs of generated steps, or whole games
+ * (a paid game lets them keep generating until that story ends). Only one is offered at a time.
+ */
+export const PURCHASE_MODES = ["off", "generations", "games"] as const;
+export type PurchaseMode = (typeof PURCHASE_MODES)[number];
+export const PACK_MAX = 100;
+
+/** Stripe will not charge less than this in USD; a pack priced below it is raised to it. */
+export const STRIPE_MIN_CHARGE_USD = 0.5;
+
+export type Quote = {
+  mode: Exclude<PurchaseMode, "off">;
+  /** Units in one purchase (generations, or games). */
+  units: number;
+  priceUsd: number;
+  stripeFeeUsd: number;
+  costUsd: number;
+  profitUsd: number;
+  profitPerUnitUsd: number;
+  /** Profit per generation, the figure the admin setting is expressed in. */
+  profitPerGenerationUsd: number;
+};
+
+/**
+ * The price of one pack, and what it leaves after costs and Stripe. Stripe's fee is charged on the final
+ * price, so it is solved for rather than added on:
+ *
+ *   price = (units * (cost + profit) + fixedFee) / (1 - percentFee)
+ *
+ * which leaves exactly `profit` per unit once Stripe has taken its cut; rounding up to the cent only adds.
+ * Shared with the client so the admin panel can re-price on every keystroke, with the same arithmetic the
+ * server charges by.
+ */
+export function quotePack(p: {
+  mode: Exclude<PurchaseMode, "off">;
+  units: number;
+  unitCostUsd: number;
+  unitProfitUsd: number;
+  generationsPerUnit: number;
+  feePercent: number;
+  feeFixedUsd: number;
+}): Quote {
+  const pct = p.feePercent / 100;
+  const raw = (p.units * (p.unitCostUsd + p.unitProfitUsd) + p.feeFixedUsd) / (1 - pct);
+  const priceUsd = Math.max(STRIPE_MIN_CHARGE_USD, Math.ceil(raw * 100 - 1e-9) / 100);
+  const stripeFeeUsd = priceUsd * pct + p.feeFixedUsd;
+  const costUsd = p.units * p.unitCostUsd;
+  const profitUsd = priceUsd - stripeFeeUsd - costUsd;
+  return {
+    mode: p.mode,
+    units: p.units,
+    priceUsd,
+    stripeFeeUsd,
+    costUsd,
+    profitUsd,
+    profitPerUnitUsd: profitUsd / p.units,
+    profitPerGenerationUsd: profitUsd / (p.units * p.generationsPerUnit),
+  };
+}
+
+/** The pricing settings, as the calculator needs them. */
+export type PriceSettings = {
+  packGenerations: number;
+  packGames: number;
+  profitPerGenerationUsd: number;
+  stripeFeePercent: number;
+  stripeFeeFixedUsd: number;
+};
+
+/** Both models priced from one generation's cost and the steps a game takes. */
+export function quoteBoth(costPerGenerationUsd: number, stepsPerGame: number, s: PriceSettings) {
+  const fees = { feePercent: s.stripeFeePercent, feeFixedUsd: s.stripeFeeFixedUsd };
+  return {
+    generations: quotePack({ mode: "generations", units: s.packGenerations, unitCostUsd: costPerGenerationUsd, unitProfitUsd: s.profitPerGenerationUsd, generationsPerUnit: 1, ...fees }),
+    games: quotePack({
+      mode: "games",
+      units: s.packGames,
+      unitCostUsd: costPerGenerationUsd * stepsPerGame,
+      unitProfitUsd: s.profitPerGenerationUsd * stepsPerGame,
+      generationsPerUnit: stepsPerGame,
+      ...fees,
+    }),
+  };
+}
 export const NETWORK_TOLERANCE_MAX = 100;
 
 export const ALLOWANCE_MODE_LABELS: Record<AllowanceMode, string> = {

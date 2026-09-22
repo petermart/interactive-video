@@ -14,13 +14,16 @@ import { markDownloaded, viewerLeft } from "./server/ephemeral";
 import { analyticsToken } from "./server/analytics";
 import { auth, authBaseUrl, authEnabled, authSecret, callbackUrlFor, configuredProviders, currentUser, emailPasswordEnabled, reloadAuth } from "./server/auth";
 import { PROVIDER_IDS, providerStatus, saveProvider } from "./server/authConfig";
-import { checkQuota, grantShareCredit, guestCookie, identifyGuest, recordGameCompleted, recordGeneration, viewerIsMember, type Viewer } from "./server/quota";
+import { checkQuota, creditPurchase, grantShareCredit, guestCookie, identifyGuest, memberLedgerId, purchaseStats, recordGameCompleted, recordGeneration, viewerIsMember, type Viewer } from "./server/quota";
+import { currentOffer, pricingReport } from "./server/pricing";
+import { createCheckout, stripeEnabled, stripeTestMode, verifyWebhook, type CompletedCheckout } from "./server/stripe";
 import { migrateOnBootIfRequested } from "./server/migrateVolume";
 import { startRetention } from "./server/retention";
 import { startArchiveBackups } from "./server/archiveBackup";
 import { tagJobOwner, usageReport } from "./server/usage";
 import { deleteArchived, getArchived, listArchive, updateArchived } from "./server/actionCache";
-import { adminArchivePage, adminLoginPage } from "./server/adminPages";
+import { adminArchivePage, adminFilmsPage, adminLoginPage } from "./server/adminPages";
+import { listFilms } from "./server/films";
 import { adminCookie, clearAdminCookie, isAdmin, verifyAdminPassword } from "./server/adminSession";
 import { backupManifest, databaseSnapshot, stateFiles } from "./server/backup";
 import { falTurboUsdPerSec } from "./server/falTurboVideo";
@@ -107,6 +110,16 @@ const regenerationProviders = () =>
         : id === "gmi" ? "~$1.20"
         : "~$0.75",
     }));
+
+/**
+ * What the gate may offer for sale: the current quote, when purchasing is on and Stripe can take the money.
+ * Only what a player needs to see - the price and what it buys, never our costs or margin.
+ */
+function purchaseOffer() {
+  const quote = currentOffer();
+  if (!quote || !stripeEnabled()) return null;
+  return { mode: quote.mode, units: quote.units, priceUsd: quote.priceUsd, testMode: stripeTestMode() };
+}
 
 /** Video providers that have an API key here, in preference order: the only ones the admin panel offers. */
 const availableProviders = () => VIDEO_PROVIDERS.filter(providerAvailable);
@@ -284,6 +297,9 @@ const server = serve({
       isAdmin(req) ? html(adminArchivePage(regenerationProviders(), world.environments.map(e => e.id))) : redirect("/admin"),
 
     // Lets the in-game admin panel open the archive page without a second login: it already has the password.
+    /** Every stitched film ever made, playable, for the operator. Same signed-in admin session as the archive. */
+    "/admin/films": req => (isAdmin(req) ? html(adminFilmsPage(listFilms())) : redirect("/admin")),
+
     "/api/admin/session": {
       POST: async req => {
         const { password } = await req.json().catch(() => ({}));
@@ -406,7 +422,7 @@ const server = serve({
 
         try {
           const job = startDirection(fromNodeId, direction, viewerOf(req));
-          recordGeneration(viewer, allowanceFor(viewer));
+          recordGeneration(viewer, allowanceFor(viewer), verdict);
           tagJobOwner(job.id, guest.cookieId, viewer.userId);
           return Response.json(
             { jobId: job.id },
@@ -441,6 +457,8 @@ const server = serve({
           blockedReason: verdict.allowed ? null : verdict.reason,
           // Whether sharing an ending is still worth an extra go this window, so the gate only offers it then.
           shareGrantsGame: verdict.bonus < getSettings().shareBonusMax,
+          paid: verdict.paid,
+          purchase: purchaseOffer(),
         },
         { headers: viewer.guest.issueCookie ? { "set-cookie": guestCookie(viewer.guest.cookieId) } : {} },
       );
@@ -469,6 +487,69 @@ const server = serve({
         const viewer = await viewerFor(req);
         const granted = grantShareCredit(viewer, nodeId, allowanceFor(viewer), shareBonusMax);
         return Response.json({ granted, ...quotaFor(viewer) });
+      },
+    },
+
+    /**
+     * Starts a Stripe Checkout for the current offer and hands back its URL. Signed-in only: bought credits
+     * live on the account, where a cleared cookie or a new device cannot lose them.
+     */
+    "/api/checkout": {
+      POST: async req => {
+        const offer = purchaseOffer();
+        if (!offer) return Response.json({ error: "Nothing is on sale right now." }, { status: 400 });
+        const user = await currentUser(req);
+        if (!user) return Response.json({ error: "Sign in to buy more.", requiresSignIn: true }, { status: 401 });
+        const quote = currentOffer()!;
+        try {
+          const origin = publicBaseUrl() ?? new URL(req.url).origin;
+          const { url } = await createCheckout(quote, { ledgerId: memberLedgerId(user.id), unit: quote.mode, units: quote.units }, origin);
+          return Response.json({ url });
+        } catch (err) {
+          return Response.json({ error: `Checkout could not start: ${(err as Error).message}` }, { status: 502 });
+        }
+      },
+    },
+
+    /**
+     * Stripe's word that a checkout was paid. The only place credits are granted. Anything that fails the
+     * signature check is refused; anything verified is acknowledged with a 200, even events we ignore, since
+     * Stripe keeps retrying whatever it does not get a 2xx for.
+     */
+    "/api/stripe/webhook": {
+      POST: async req => {
+        const raw = await req.text();
+        if (!verifyWebhook(raw, req.headers.get("stripe-signature"))) return new Response("Bad signature", { status: 400 });
+        const event = JSON.parse(raw) as { type: string; data: { object: CompletedCheckout } };
+        // async_payment_succeeded covers payment methods that settle later (bank debits); cards arrive paid.
+        if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
+          const session = event.data.object;
+          const { ledgerId, unit, units } = session.metadata ?? {};
+          if (session.payment_status === "paid" && ledgerId && (unit === "generations" || unit === "games") && Number(units) > 0) {
+            creditPurchase({
+              sessionId: session.id,
+              ledgerId,
+              unit,
+              units: Number(units),
+              amountCents: session.amount_total,
+              currency: session.currency,
+            });
+          }
+        }
+        return new Response("ok");
+      },
+    },
+
+    /** The price calculation laid out for the admin panel: every cost that goes in, and what each model sells for. */
+    "/api/admin/pricing": {
+      POST: async req => {
+        const { password } = await req.json().catch(() => ({}));
+        if (!checkAdminPassword(password)) return Response.json({ error: "Wrong password" }, { status: 401 });
+        return Response.json({
+          ...pricingReport(),
+          stripe: { enabled: stripeEnabled(), testMode: stripeTestMode(), hasSecretKey: Boolean(process.env.STRIPE_SECRET_KEY), hasWebhookSecret: Boolean(process.env.STRIPE_WEBHOOK_SECRET) },
+          sales: purchaseStats(),
+        });
       },
     },
 

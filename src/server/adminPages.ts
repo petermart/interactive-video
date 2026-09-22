@@ -1,3 +1,5 @@
+import type { Film } from "./films";
+
 /**
  * Server-rendered admin pages: the sign-in form and the action-archive manager. Plain HTML plus a little inline
  * script, like the About and share pages, so they need no client bundle. They are only ever served to a signed-in
@@ -215,6 +217,121 @@ async function poll(r, status, button) {
 
 ["#q", "#outcome", "#env"].forEach(s => $(s).addEventListener("input", render));
 load().catch(e => { $("#list").textContent = "Could not load the archive: " + e.message; });
+</script>
+</body></html>`;
+}
+
+/**
+ * Every stitched film, newest first: a playable grid with the facts about each one, filterable by ending and
+ * by whether the file still exists. The list is embedded in the page, so it is one request however long it gets;
+ * the videos themselves load only when played.
+ */
+export function adminFilmsPage(films: Film[]) {
+  // Embedded as JSON inside a script tag: "<" is escaped so no value can close the tag early.
+  const data = JSON.stringify(films).replace(/</g, "\\u003c");
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" /><title>Films · Escape from Slop Prison</title>${FONTS}
+<style>${STYLE}
+  main { max-width: 1400px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+  .stats { display: flex; flex-wrap: wrap; gap: 18px; margin-top: 14px; color: rgba(255,255,255,.55); font-size: 12px; }
+  .stats b { color: #fff; font-size: 16px; display: block; }
+  .filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 18px 0; }
+  .filters button.on { background: var(--sodium); border-color: var(--sodium); color: #000; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 14px; }
+  .card { border: 1px solid rgba(255,255,255,.1); border-radius: 10px; overflow: hidden; background: rgba(0,0,0,.35); }
+  .card video, .card .none { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; }
+  .card .none { display: grid; place-items: center; color: rgba(255,255,255,.3); font-size: 12px; }
+  .meta { padding: 10px 12px; font-size: 12px; color: rgba(255,255,255,.6); }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  .tag { font-size: 10px; letter-spacing: .15em; padding: 1px 6px; border-radius: 4px; border: 1px solid currentColor; }
+  .escaped { color: var(--green); } .fail { color: var(--red); } .other { color: rgba(255,255,255,.45); }
+  .links { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+  .id { font-size: 10px; color: rgba(255,255,255,.3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .empty { color: rgba(255,255,255,.4); padding: 40px 0; text-align: center; }
+</style></head>
+<body><main>
+  <header>
+    <div><div class="kicker">ADMIN</div><h1>Every stitched film</h1></div>
+    <a href="/admin/archive">Action archive →</a>
+  </header>
+  <div class="stats" id="stats"></div>
+  <div class="filters" id="filters"></div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" hidden>No films match.</div>
+</main>
+<script>
+  const films = ${data};
+  const FILTERS = {
+    all: () => true,
+    escaped: f => f.outcome === "escaped",
+    fail: f => f.outcome === "fail",
+    stored: f => f.stored !== "gone",
+    gone: f => f.stored === "gone",
+    members: f => f.owner === "member",
+    guests: f => f.owner === "guest",
+  };
+  const LABELS = { all: "All", escaped: "Escaped", fail: "Caught", stored: "Still stored", gone: "File gone", members: "Signed in", guests: "Guests" };
+  let active = "all";
+
+  const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids.filter(k => k != null)); return n; };
+  const mins = s => s == null ? "?" : s >= 60 ? Math.floor(s / 60) + "m " + Math.round(s % 60) + "s" : Math.round(s) + "s";
+  const size = b => b == null ? "" : b > 1e9 ? (b / 1e9).toFixed(2) + " GB" : (b / 1e6).toFixed(1) + " MB";
+  const when = iso => iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "unknown date";
+
+  function stats() {
+    const total = films.reduce((s, f) => s + (f.seconds || 0), 0);
+    const bytes = films.reduce((s, f) => s + (f.stored !== "gone" ? f.bytes || 0 : 0), 0);
+    const stat = (value, label) => el("div", {}, el("b", { textContent: value }), label);
+    document.getElementById("stats").replaceChildren(
+      stat(films.length, "films"),
+      stat(films.filter(f => f.outcome === "escaped").length, "escapes"),
+      stat(films.filter(f => f.stored !== "gone").length, "still stored"),
+      stat(mins(total), "of footage"),
+      stat(size(bytes) || "0 MB", "on storage"),
+    );
+  }
+
+  function filters() {
+    document.getElementById("filters").replaceChildren(...Object.keys(FILTERS).map(key => {
+      const count = films.filter(FILTERS[key]).length;
+      return el("button", { className: key === active ? "on" : "", textContent: LABELS[key] + " (" + count + ")", onclick: () => { active = key; render(); } });
+    }));
+  }
+
+  function card(f) {
+    const video = f.stored === "gone"
+      ? el("div", { className: "none", textContent: "File no longer stored" })
+      : el("video", { src: f.url, controls: true, preload: "none", playsInline: true, ...(f.thumbnail ? { poster: f.thumbnail } : {}) });
+    const outcome = f.outcome === "escaped" ? ["ESCAPED", "escaped"] : f.outcome === "fail" ? ["CAUGHT", "fail"] : [(f.outcome || "unknown").toUpperCase(), "other"];
+    const links = el("div", { className: "links" },
+      el("a", { href: "/s/" + f.nodeId, target: "_blank", textContent: "Share page" }),
+      f.stored !== "gone" ? el("a", { href: f.url, download: f.nodeId + ".mp4", textContent: "Download" }) : null,
+      f.vertical ? el("a", { href: "/media/exports/" + f.nodeId + "-vertical.mp4", target: "_blank", textContent: "9:16 cut" }) : null,
+    );
+    const facts = [f.owner === "member" ? "signed in" : f.owner === "guest" ? "guest" : "", f.stored === "r2" ? "R2" : f.stored === "disk" ? "disk" : "", size(f.stored !== "gone" ? f.bytes : null)];
+    return el("div", { className: "card" }, video, el("div", { className: "meta" },
+      el("div", { className: "row" }, el("span", { textContent: when(f.createdAt) }), el("span", { className: "tag " + outcome[1], textContent: outcome[0] })),
+      el("div", { className: "row" },
+        el("span", { textContent: mins(f.seconds) + (f.clips != null ? " · " + f.clips + " clip" + (f.clips === 1 ? "" : "s") : "") }),
+        el("span", { textContent: facts.filter(Boolean).join(" · ") })),
+      links,
+      el("div", { className: "id", textContent: f.nodeId, title: f.nodeId }),
+    ));
+  }
+
+  function render() {
+    filters();
+    const shown = films.filter(FILTERS[active]);
+    document.getElementById("grid").replaceChildren(...shown.map(card));
+    document.getElementById("empty").hidden = shown.length > 0;
+  }
+
+  // Only one film plays at a time: starting another pauses the rest.
+  document.addEventListener("play", e => document.querySelectorAll("video").forEach(v => v !== e.target && v.pause()), true);
+  stats();
+  render();
 </script>
 </body></html>`;
 }

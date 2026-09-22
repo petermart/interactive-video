@@ -24,5 +24,12 @@
     "count": 0,
     "resetDays": 1
   },
-  "shareGrantsGame": false
+  "shareBonusMax": 0,
+  "networkTolerance": 5,
+  "purchaseMode": "generations",
+  "packGenerations": 10,
+  "packGames": 1,
+  "profitPerGenerationUsd": 0.02,
+  "stripeFeePercent": 2.9,
+  "stripeFeeFixedUsd": 0.3
 }

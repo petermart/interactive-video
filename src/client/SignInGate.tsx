@@ -27,6 +27,10 @@ export type Me = {
   blockedReason: string | null;
   /** Sharing a finished run still earns another go (off, or this window's share bonuses are used up). */
   shareGrantsGame: boolean;
+  /** Bought credits left. `gameOpen` is a bought game in progress. */
+  paid?: { generations: number; games: number; gameOpen: boolean };
+  /** What can be bought right now, or null when nothing is on sale. */
+  purchase?: { mode: "generations" | "games"; units: number; priceUsd: number; testMode: boolean } | null;
 };
 
 export const fetchMe = () => apiFetch("/api/me").then(r => r.json() as Promise<Me>);
@@ -60,6 +64,7 @@ export function SignInGate({ me, onDismiss, nodeId, onEarned }: { me: Me; onDism
           {/* The film is saved server-side and its link works for anyone, signed in or not - never suggest otherwise. */}
           Your film is saved and its share link keeps working. {refillsIn(me.resetsAt) ?? "Come back later for more."}
         </p>
+        {me.purchase && me.signedIn && <BuyMore offer={me.purchase} />}
         {me.shareGrantsGame && nodeId && <ShareForMore nodeId={nodeId} onEarned={onEarned} />}
       </Panel>
     );
@@ -134,6 +139,12 @@ export function SignInGate({ me, onDismiss, nodeId, onEarned }: { me: Me; onDism
         </p>
       )}
 
+      {/* Bought credits live on an account, so a guest is told the offer exists but signs in first. */}
+      {me.purchase && (
+        <p className="mt-3 font-mono text-[10px] leading-relaxed text-white/40">
+          Signed in, you can also buy {offerLabel(me.purchase)} for {money(me.purchase.priceUsd)}.
+        </p>
+      )}
       {/* Nothing to share before they have played, so the offer only appears once there is a run. */}
       {me.shareGrantsGame && nodeId && played(me) && <ShareForMore nodeId={nodeId} onEarned={onEarned} or />}
     </Panel>
@@ -168,6 +179,44 @@ function Panel({ title, children, onDismiss }: { title: string; children: ReactN
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+const money = (usd: number) => `$${usd.toFixed(2)}`;
+const offerLabel = (o: NonNullable<Me["purchase"]>) =>
+  o.mode === "games" ? `${o.units} more ${o.units === 1 ? "game" : "games"}` : `${o.units} more ${o.units === 1 ? "generation" : "generations"}`;
+
+/**
+ * "Buy 10 more generations - $1.49". Hands off to Stripe's hosted checkout; the credits land when Stripe
+ * confirms the payment to the server, and the page picks them up on its way back (?purchase=success).
+ */
+function BuyMore({ offer }: { offer: NonNullable<Me["purchase"]> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const buy = async () => {
+    setBusy(true);
+    setError("");
+    const res = await apiFetch("/api/checkout", { method: "POST" }).catch(() => null);
+    const out = await res?.json().catch(() => ({}));
+    if (res?.ok && out?.url) return void (location.href = out.url);
+    setBusy(false);
+    setError(out?.error ?? "Checkout isn't available right now.");
+  };
+  return (
+    <div className="mt-4 border-t border-white/10 pt-4">
+      <button
+        onClick={buy}
+        disabled={busy}
+        className="w-full rounded-md bg-sodium px-4 py-2.5 font-display text-sm font-bold tracking-wider text-black transition hover:brightness-110 disabled:opacity-50"
+      >
+        {busy ? "OPENING CHECKOUT…" : `BUY ${offerLabel(offer).toUpperCase()} · ${money(offer.priceUsd)}`}
+      </button>
+      <p className="mt-2 font-mono text-[10px] leading-relaxed text-white/35">
+        {offer.mode === "games" ? "A bought game lasts until that story ends. " : ""}Bought goes never expire.
+        {offer.testMode && " (Test mode: use card 4242 4242 4242 4242.)"}
+      </p>
+      {error && <p className="mt-2 font-mono text-[10px] text-siren-red">{error}</p>}
     </div>
   );
 }

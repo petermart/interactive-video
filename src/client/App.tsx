@@ -99,6 +99,15 @@ export function App() {
     // Also establishes the guest cookie, so the allowance is tracked from the first visit rather than
     // from the first generation.
     fetchMe().then(setMe).catch(() => {});
+    // Back from Stripe: the credits are granted by Stripe's webhook, which can land a moment after the
+    // browser does, so re-read the allowance for a few seconds rather than once.
+    const params = new URLSearchParams(location.search);
+    if (params.has("purchase")) {
+      const bought = params.get("purchase") === "success";
+      params.delete("purchase");
+      history.replaceState(null, "", `${location.pathname}${params.size ? `?${params}` : ""}${location.hash}`);
+      if (bought) for (const ms of [1500, 4000, 8000]) setTimeout(() => void fetchMe().then(setMe).catch(() => {}), ms);
+    }
   }, []);
 
   useEffect(() => {

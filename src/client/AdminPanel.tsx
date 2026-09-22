@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ALLOWANCE_MAX, ALLOWANCE_MODE_LABELS, ALLOWANCE_MODES, NETWORK_TOLERANCE_MAX, RESET_DAYS_MAX, SHARE_BONUS_MAX, CREATIVITY_POINT_OPTIONS, describeAllowance, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type Allowance, type AllowanceMode, type LlmModelId, type OutcomeMode, type VideoProvider } from "../server/constants";
 import { AdminAuth } from "./AdminAuth";
 import { AdminCredits, useAdminPassword } from "./AdminCredits";
+import { AdminPricing } from "./AdminPricing";
 import { api, type Job, type Settings, type SettingsView } from "./api";
 import { DEFAULT_MUSIC_VOLUME, useMusicVolume } from "./musicVolume";
 
@@ -198,6 +199,18 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
               Action archive manager ↗
             </button>
           )}
+          {password && (
+            <button
+              onClick={async () => {
+                const tab = window.open("", "_blank");
+                const res = await fetch("/api/admin/session", { method: "POST", body: JSON.stringify({ password }) });
+                if (tab) tab.location.href = res.ok ? "/admin/films" : "/admin";
+              }}
+              className="mb-3 w-full rounded border border-teal/50 px-2 py-1.5 text-left text-xs text-teal hover:bg-teal/10"
+            >
+              Every stitched film ↗
+            </button>
+          )}
           {password && <AdminAuth />}
 
           {saveError && <div className="mb-3 rounded border border-siren-red/50 bg-siren-red/10 p-2 text-xs text-siren-red">{saveError}</div>}
@@ -251,6 +264,8 @@ export function AdminPanel({ lastDebug }: { lastDebug: Job["debug"] | null }) {
             counted per account. Each share bonus is a whole game (or a whole allowance of steps), one per finished
             run, and they reset when the allowance refills.
           </div>
+
+          <AdminPricing settings={settings} password={password} save={save} />
 
           <div className="text-white/70">Success decided by</div>
           <div className="mt-1 grid grid-cols-3 overflow-hidden rounded border border-white/15">

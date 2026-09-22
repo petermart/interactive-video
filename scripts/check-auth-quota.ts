@@ -9,7 +9,7 @@
 
 import type { Allowance } from "../src/server/constants";
 import { db } from "../src/server/db";
-import { checkQuota, grantShareCredit, recordGameCompleted, recordGeneration, type Guest, type Viewer } from "../src/server/quota";
+import { checkQuota, creditPurchase, grantShareCredit, memberLedgerId, recordGameCompleted, recordGeneration, type Guest, type Viewer } from "../src/server/quota";
 import "../src/server/auth"; // importing runs the migration
 
 const show = (label: string, ok: boolean, extra = "") => console.log(`${ok ? "ok  " : "FAIL"} ${label}${extra ? ` — ${extra}` : ""}`);
@@ -182,6 +182,55 @@ const freshMember = (): Viewer => ({ ...freshGuest(), userId: `test-user-${crypt
   check("daily window: blocked again after one game in the new window", !checkQuota(v, daily).allowed);
 }
 
+// bought generations carry on past the free allowance, one per step, and are not reset by a refill
+{
+  const m = freshMember();
+  const one = steps(1, 1);
+  const buy = (units: number, unit: "generations" | "games" = "generations") =>
+    creditPurchase({ sessionId: `cs_test_${crypto.randomUUID()}`, ledgerId: memberLedgerId(m.userId!), unit, units, amountCents: 199, currency: "usd" });
+  const step = () => {
+    const verdict = checkQuota(m, one);
+    if (verdict.allowed) recordGeneration(m, one, verdict);
+    return verdict;
+  };
+  check("free step is not paid", !step().usesPaid);
+  check("out of free steps, nothing bought: blocked", !checkQuota(m, one).allowed);
+  buy(2);
+  check("bought 2: allowed again, on paid credit", step().usesPaid);
+  check("bought 2: one left", checkQuota(m, one).paid.generations === 1, `left ${checkQuota(m, one).paid.generations}`);
+  step();
+  check("bought 2: spent, blocked again", !checkQuota(m, one).allowed);
+  buy(3);
+  db.query(`UPDATE guest_usage SET window_start = ? WHERE id = ?`).run(new Date(Date.now() - 2 * 86_400_000).toISOString(), memberLedgerId(m.userId!));
+  check("refill uses the free step before bought ones", !step().usesPaid);
+  check("refill leaves bought credits alone", checkQuota(m, one).paid.generations === 3, `left ${checkQuota(m, one).paid.generations}`);
+}
+
+// a bought game lasts until that story ends, however many steps it takes
+{
+  const m = freshMember();
+  const none = steps(0);
+  creditPurchase({ sessionId: `cs_test_${crypto.randomUUID()}`, ledgerId: memberLedgerId(m.userId!), unit: "games", units: 1, amountCents: 299, currency: "usd" });
+  for (let i = 0; i < 4; i++) {
+    const verdict = checkQuota(m, none);
+    check(`bought game: step ${i + 1} allowed`, verdict.allowed && verdict.usesPaid);
+    recordGeneration(m, none, verdict);
+  }
+  check("bought game: taken from the balance when it started", checkQuota(m, none).paid.games === 0 && checkQuota(m, none).paid.gameOpen);
+  recordGameCompleted(m, none);
+  check("bought game: blocked once the story ends", !checkQuota(m, none).allowed);
+}
+
+// Stripe retries a webhook until it is acknowledged: the same checkout must only pay once
+{
+  const m = freshMember();
+  const session = `cs_test_${crypto.randomUUID()}`;
+  const once = { sessionId: session, ledgerId: memberLedgerId(m.userId!), unit: "generations" as const, units: 5, amountCents: 349, currency: "usd" };
+  check("first delivery credits", creditPurchase(once));
+  check("second delivery is ignored", !creditPurchase(once));
+  check("credited exactly once", checkQuota(m, steps(0)).paid.generations === 5, `balance ${checkQuota(m, steps(0)).paid.generations}`);
+}
+
 // a window of 0 days never refills
 {
   const v = freshGuest();
@@ -211,6 +260,7 @@ db.query(
   `DELETE FROM guest_usage WHERE id LIKE 'test-cookie-%' OR id LIKE 'user:test-user-%' OR id LIKE 'room-%' OR id LIKE 'abuse-%' OR id LIKE 'ip:203.0.113.%' OR id LIKE 'ip:198.51.100.%'`,
 ).run();
 db.query(`DELETE FROM share_credits WHERE id LIKE 'test-cookie-%' OR id LIKE 'user:test-user-%'`).run();
+db.query(`DELETE FROM purchases WHERE session_id LIKE 'cs_test_%' AND ledger_id LIKE 'user:test-user-%'`).run();
 
 console.log(failed ? "\nSomething is wrong — see above." : "\nSign-in gate behaves.");
 process.exit(failed ? 1 : 0);

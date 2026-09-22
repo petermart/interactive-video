@@ -85,7 +85,7 @@ export type World = {
 };
 export const world = worldJson as World;
 
-import { ALLOWANCE_MAX, ALLOWANCE_MODES, NETWORK_TOLERANCE_MAX, RESET_DAYS_MAX, SHARE_BONUS_MAX, CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type Allowance, type AllowanceMode, type LlmModelId, type OutcomeMode, type VideoProvider } from "./constants";
+import { ALLOWANCE_MAX, ALLOWANCE_MODES, NETWORK_TOLERANCE_MAX, PACK_MAX, PURCHASE_MODES, type PurchaseMode, RESET_DAYS_MAX, SHARE_BONUS_MAX, CREATIVITY_POINT_OPTIONS, LLM_MODEL_OPTIONS, OUTCOME_MODES, VIDEO_PROVIDERS, type Allowance, type AllowanceMode, type LlmModelId, type OutcomeMode, type VideoProvider } from "./constants";
 export { CREATIVITY_POINT_OPTIONS, OUTCOME_MODES, type OutcomeMode };
 
 export type Settings = {
@@ -131,6 +131,20 @@ export type Settings = {
    * Stops clearing cookies from being a reset button without blocking a room on shared wifi. 0 turns it off.
    */
   networkTolerance: number;
+  /** Whether players can buy more once their allowance runs out, and in what unit. */
+  purchaseMode: PurchaseMode;
+  /** Generations in one purchase. Bigger packs spread Stripe's fixed fee thinner. */
+  packGenerations: number;
+  /** Games in one purchase. */
+  packGames: number;
+  /**
+   * Profit (or, negative, loss) wanted on each generation after every cost, Stripe's fee included. A game is
+   * priced at this times the measured steps per game. The price follows from it; see pricing.ts.
+   */
+  profitPerGenerationUsd: number;
+  /** Stripe's card fee: a percentage of the charge plus a fixed amount per charge. */
+  stripeFeePercent: number;
+  stripeFeeFixedUsd: number;
 };
 
 const defaults: Settings = {
@@ -156,6 +170,13 @@ const defaults: Settings = {
   memberAllowance: { mode: "unlimited", count: 0, resetDays: 1 },
   shareBonusMax: 0,
   networkTolerance: 5,
+  purchaseMode: "off",
+  packGenerations: 10,
+  packGames: 1,
+  profitPerGenerationUsd: 0.05,
+  // Stripe's standard US online card rate.
+  stripeFeePercent: 2.9,
+  stripeFeeFixedUsd: 0.3,
 };
 
 /** Settings saved before allowances were numbers. Read once, then written back in the new shape. */
@@ -236,6 +257,13 @@ export async function updateSettings(patch: Partial<Settings>) {
   next.guestAllowance = readAllowance(next.guestAllowance, settings.guestAllowance);
   next.memberAllowance = readAllowance(next.memberAllowance, settings.memberAllowance);
   next.shareBonusMax = clamp(Math.round(Number(next.shareBonusMax) || 0), 0, SHARE_BONUS_MAX);
+  if (!PURCHASE_MODES.includes(next.purchaseMode)) next.purchaseMode = settings.purchaseMode;
+  next.packGenerations = clamp(Math.round(Number(next.packGenerations) || 1), 1, PACK_MAX);
+  next.packGames = clamp(Math.round(Number(next.packGames) || 1), 1, PACK_MAX);
+  const cents = (n: unknown, fallback: number) => (Number.isFinite(Number(n)) ? Math.round(Number(n) * 100) / 100 : fallback);
+  next.profitPerGenerationUsd = clamp(cents(next.profitPerGenerationUsd, settings.profitPerGenerationUsd), -10, 10);
+  next.stripeFeePercent = clamp(Math.round(Number(next.stripeFeePercent) * 100) / 100 || 0, 0, 20);
+  next.stripeFeeFixedUsd = clamp(cents(next.stripeFeeFixedUsd, settings.stripeFeeFixedUsd), 0, 5);
   next.networkTolerance = clamp(Math.round(Number(next.networkTolerance) || 0), 0, NETWORK_TOLERANCE_MAX);
   if (!VIDEO_PROVIDERS.includes(next.videoProvider)) next.videoProvider = settings.videoProvider;
   if (!providerAvailable(next.videoProvider)) next.videoProvider = preferredVideoProvider();

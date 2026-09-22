@@ -32,6 +32,24 @@ tryExec("bonus column", `ALTER TABLE guest_usage ADD COLUMN bonus INTEGER NOT NU
 // When the current allowance window opened. Allowances refill on a rolling window per person, so this is
 // the clock each row is measured against; null on rows that predate it, which fall back to first_seen.
 tryExec("window column", `ALTER TABLE guest_usage ADD COLUMN window_start TEXT`);
+// Bought credits. Kept apart from the free counters because they never expire: reopen() leaves them alone
+// when an allowance window turns over. A bought game is taken from paid_games when its first paid step
+// starts, and paid_game_open then lets the rest of that story through until it ends.
+tryExec("paid generations column", `ALTER TABLE guest_usage ADD COLUMN paid_generations INTEGER NOT NULL DEFAULT 0`);
+tryExec("paid games column", `ALTER TABLE guest_usage ADD COLUMN paid_games INTEGER NOT NULL DEFAULT 0`);
+tryExec("paid game open column", `ALTER TABLE guest_usage ADD COLUMN paid_game_open INTEGER NOT NULL DEFAULT 0`);
+// One row per completed Stripe checkout. The session id is the key, so a webhook Stripe retries is paid once.
+tryExec("purchases", `
+  CREATE TABLE IF NOT EXISTS purchases (
+    session_id TEXT PRIMARY KEY,
+    ledger_id TEXT NOT NULL,
+    unit TEXT NOT NULL,            -- 'generations' or 'games'
+    units INTEGER NOT NULL,
+    amount_cents INTEGER,
+    currency TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+`);
 tryExec("share credits", `
   CREATE TABLE IF NOT EXISTS share_credits (
     id TEXT PRIMARY KEY,           -- '<identity>:<nodeId>'
@@ -125,12 +143,36 @@ const reopen = () =>
      WHERE id = $id`,
   );
 
-type Row = { generations: number; games_completed: number; bonus: number; window_start: string | null; first_seen: string };
-const NO_ROW: Row = { generations: 0, games_completed: 0, bonus: 0, window_start: null, first_seen: new Date().toISOString() };
+type Row = {
+  generations: number;
+  games_completed: number;
+  bonus: number;
+  window_start: string | null;
+  first_seen: string;
+  paid_generations: number;
+  paid_games: number;
+  paid_game_open: number;
+};
+const NO_ROW: Row = {
+  generations: 0,
+  games_completed: 0,
+  bonus: 0,
+  window_start: null,
+  first_seen: new Date().toISOString(),
+  paid_generations: 0,
+  paid_games: 0,
+  paid_game_open: 0,
+};
 /** A missing table reads as "no usage yet": viewers are let through rather than blocked by a broken ledger. */
 const readRow = (id: string): Row =>
   tryQuery(
-    () => db.query<Row, [string]>(`SELECT generations, games_completed, bonus, window_start, first_seen FROM guest_usage WHERE id = ?`).get(id),
+    () =>
+      db
+        .query<Row, [string]>(
+          `SELECT generations, games_completed, bonus, window_start, first_seen, paid_generations, paid_games, paid_game_open
+           FROM guest_usage WHERE id = ?`,
+        )
+        .get(id),
     null,
     "usage",
   ) ?? NO_ROW;
@@ -179,7 +221,14 @@ export type QuotaVerdict = {
   remaining: number | null;
   /** When this allowance refills; null when it never does, or when nothing has been used yet. */
   resetsAt: string | null;
+  /** Bought credits left. `gameOpen` is a bought game that has started and not yet ended. */
+  paid: { generations: number; games: number; gameOpen: boolean };
+  /** The free allowance is spent and this step would be taken from bought credits. */
+  usesPaid: boolean;
 };
+
+const paidOf = (row: Row) => ({ generations: row.paid_generations, games: row.paid_games, gameOpen: row.paid_game_open > 0 });
+const hasPaid = (p: QuotaVerdict["paid"]) => p.gameOpen || p.generations > 0 || p.games > 0;
 
 /**
  * Decides whether this viewer may generate, against the allowance for their side of the sign-in line.
@@ -191,9 +240,11 @@ export type QuotaVerdict = {
  */
 export function checkQuota(viewer: Viewer, allowance: Allowance, memberAllowance?: Allowance, networkTolerance = IP_TOLERANCE): QuotaVerdict {
   const member = viewerIsMember(viewer);
-  const usage = readUsage(ledgerOf(viewer).id, allowance.resetDays);
+  const row = readRow(ledgerOf(viewer).id);
+  const usage = windowed(row, allowance.resetDays);
   const used = { generations: usage.generations, games: usage.games_completed };
-  const base = { allowance, used, bonus: usage.bonus, resetsAt: usage.resetsAt };
+  const paid = paidOf(row);
+  const base = { allowance, used, bonus: usage.bonus, resetsAt: usage.resetsAt, paid, usesPaid: false };
 
   if (allowance.mode === "unlimited") return { allowed: true, requiresSignIn: false, reason: "", remaining: null, ...base };
 
@@ -209,6 +260,8 @@ export function checkQuota(viewer: Viewer, allowance: Allowance, memberAllowance
   const blocked = spent >= cap || (networkTolerance > 0 && networkSpent >= (cap + 1) * networkTolerance);
   const remaining = Math.max(0, cap - spent);
   if (!blocked) return { allowed: true, requiresSignIn: false, reason: "", remaining, ...base };
+  // Past the free allowance, bought credits carry on where it stopped.
+  if (hasPaid(paid)) return { allowed: true, requiresSignIn: false, reason: "", remaining: 0, ...base, usesPaid: true };
 
   /**
    * Whether signing in would actually unblock them. It usually would, and not only when members are allowed
@@ -230,14 +283,34 @@ export function checkQuota(viewer: Viewer, allowance: Allowance, memberAllowance
   return { allowed: false, requiresSignIn: signInHelps, reason, remaining: 0, ...base };
 }
 
-/** Counts one generated step against this viewer (and, for a guest, their network). */
-export function recordGeneration(viewer: Viewer, allowance: Allowance) {
+/**
+ * Counts one generated step against this viewer (and, for a guest, their network). Pass the verdict that let
+ * the step through: when it was paid for, a bought credit is taken too - an open bought game first, then a
+ * bought generation, then a new bought game.
+ */
+export function recordGeneration(viewer: Viewer, allowance: Allowance, verdict?: Pick<QuotaVerdict, "usesPaid">) {
   record(viewer, "generations", allowance.resetDays);
+  if (!verdict?.usesPaid) return;
+  tryQuery(
+    () =>
+      db
+        .query(
+          `UPDATE guest_usage SET
+             paid_generations = CASE WHEN paid_game_open = 0 AND paid_generations > 0 THEN paid_generations - 1 ELSE paid_generations END,
+             paid_games = CASE WHEN paid_game_open = 0 AND paid_generations = 0 AND paid_games > 0 THEN paid_games - 1 ELSE paid_games END,
+             paid_game_open = CASE WHEN paid_game_open = 0 AND paid_generations = 0 AND paid_games > 0 THEN 1 ELSE paid_game_open END
+           WHERE id = ?`,
+        )
+        .run(ledgerOf(viewer).id),
+    null,
+    "spend paid credit",
+  );
 }
 
-/** Counts one finished story (escaped or caught) against this viewer. */
+/** Counts one finished story (escaped or caught) against this viewer, closing any bought game it was. */
 export function recordGameCompleted(viewer: Viewer, allowance: Allowance) {
   record(viewer, "games_completed", allowance.resetDays);
+  tryQuery(() => db.query(`UPDATE guest_usage SET paid_game_open = 0 WHERE id = ?`).run(ledgerOf(viewer).id), null, "close paid game");
   logEvent({ kind: "job", label: "story finished", response: { member: viewerIsMember(viewer) } });
 }
 
@@ -286,6 +359,47 @@ export function grantShareCredit(viewer: Viewer, nodeId: string, allowance: Allo
     ) ?? false
   );
 }
+
+/** The ledger a signed-in account's purchases are credited to. Purchases need an account: a cookie can be lost. */
+export const memberLedgerId = (userId: string) => `user:${userId}`;
+
+/**
+ * Credits a completed Stripe checkout. Returns false when this session has already been credited, which is
+ * how a webhook Stripe delivers twice (it retries until it gets a 2xx) is paid for once.
+ */
+export function creditPurchase(p: {
+  sessionId: string;
+  ledgerId: string;
+  unit: "generations" | "games";
+  units: number;
+  amountCents: number | null;
+  currency: string | null;
+}) {
+  const column = p.unit === "games" ? "paid_games" : "paid_generations";
+  return db.transaction(() => {
+    const inserted = db
+      .query(`INSERT OR IGNORE INTO purchases (session_id, ledger_id, unit, units, amount_cents, currency) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(p.sessionId, p.ledgerId, p.unit, p.units, p.amountCents, p.currency);
+    if (!inserted.changes) return false;
+    upsert().run({ $id: p.ledgerId, $kind: p.ledgerId.startsWith("user:") ? "user" : "cookie" });
+    db.query(`UPDATE guest_usage SET ${column} = ${column} + ? WHERE id = ?`).run(p.units, p.ledgerId);
+    logEvent({ kind: "job", label: `purchase: ${p.units} ${p.unit}`, response: { amountCents: p.amountCents, currency: p.currency } });
+    return true;
+  })();
+}
+
+/** Sales figures for the admin panel. */
+export const purchaseStats = () =>
+  tryQuery(
+    () =>
+      db
+        .query<{ purchases: number; revenue_cents: number | null; buyers: number }, []>(
+          `SELECT COUNT(*) AS purchases, SUM(amount_cents) AS revenue_cents, COUNT(DISTINCT ledger_id) AS buyers FROM purchases`,
+        )
+        .get(),
+    null,
+    "purchase stats",
+  );
 
 /** Guest-gate figures for the admin panel. */
 export const quotaStats = () =>
