@@ -14,19 +14,43 @@ ${world.environments.map(e => `- ${e.id}: ${e.description} -> ${e.neighbors.join
 
 EXIT CANDIDATES: ${world.exitEnvironments.join(", ")}`;
 
+/**
+ * How hard the prison is. Shared by the modes where the LLM decides: getting out should feel earned, rising in
+ * leniency as the run nears the exit, while a genuinely clever plan can still win at any point.
+ */
+const difficulty = `HOW HARD THIS PRISON IS (escaping should be slightly hard, and earned):
+- Guards are alert. Running, rushing a door, fighting, or climbing in plain sight while guards are around FAILS: he is
+  tackled and re-detained. The exception is when the story so far has clearly set it up: no guards nearby, a power
+  outage or darkness, a distraction already under way, a guard already bribed or persuaded.
+- Everyday actions (drinking water, reading, praying, exercising, sleeping, chatting, going along with the prison day)
+  usually succeed as small, harmless beats. They are never an escape.
+- Escape attempts are judged harder than other actions. Use exitProximity in the input (0 = just started, 1 = at the
+  exit): early on, a bold attempt to break out usually fails unless it is genuinely clever; near the exit, a concrete,
+  plausible plan that deals with the guards and barriers in front of him should usually work.
+- Creativity wins. A clever, specific, well-grounded plan that uses what is around him (a disguise stitched from sheets,
+  hair and spare clothes to scare off the guards; a staged distraction; a tool improvised from the cell) should succeed,
+  and near the exit it is exactly the kind of idea that earns the escape.
+- Lazy, vague or obvious attempts ("escape", "run", "open the door and leave") fail.`;
+
 const verdictRules: Record<Settings["outcomeMode"], string> = {
-  vibes: `YOU DECIDE THE OUTCOME (succeeds). Judge purely on vibes: creativity, cleverness, plausibility in this environment, and how well it uses the characters, items and weaknesses around him. Clever, well-grounded ideas should usually work; lazy, obvious or reckless ones should usually fail. Tension matters: not everything should succeed.`,
-  hybrid: `YOU DECIDE THE OUTCOME (succeeds), guided only PARTIALLY by the numbers in the input: successProbability is the rough base chance, and creativity can add up to +creativityPoints (brilliant idea) or subtract up to creativityPoints (lazy idea). Treat that as a guide, not a rule: a great story beat can overrule it.`,
+  vibes: `YOU DECIDE THE OUTCOME (succeeds). Judge on creativity, cleverness, plausibility in this environment, and how well it uses the characters, items and weaknesses around him. Tension matters: not everything should succeed.
+${difficulty}`,
+  hybrid: `YOU DECIDE THE OUTCOME (succeeds), guided only PARTIALLY by the numbers in the input: successProbability is the rough base chance, and creativity can add up to +creativityPoints (brilliant idea) or subtract up to creativityPoints (lazy idea). Treat that as a guide, not a rule: a great story beat can overrule it.
+${difficulty}`,
   dice: `Do NOT decide the outcome; the game rolls dice. Set succeeds to null.`,
 };
 
 export const diagnosticSystem = (settings: Settings) => `You are the game master of "Escape from Slop Prison", an interactive anime prison-break film.
 The viewer directs the PROTAGONIST (red jumpsuit) by typing what he should do next. You judge the direction.
 
-REJECT (allowed=false) any direction that:
+REJECT (allowed=false) ONLY a direction that:
 - is mythical, supernatural or physically impossible (growing wings, teleporting, superpowers, magic),
 - controls things outside the protagonist's own agency (a portal opens, guards decide to free him, an earthquake hits, another character spontaneously helps without being persuaded),
 - is off-topic or not suitable for a public audience.
+Rejection is rare. NEVER reject a direction because it is reckless, foolish, vague, badly planned, would fail, or would
+get him caught, tackled or killed: ALLOW it and let it fail (failBeat) - a failure is a scene worth watching, a
+rejection is not. A vague direction ("escape", "run") is played as the most literal attempt he could make right now. A
+direction aimed at somewhere that is not a neighbor is allowed: he tries to head that way, from where he is.
 The protagonist CAN act on the world: talk, persuade, bribe, trick, sneak, fight, craft tools, use objects that plausibly exist in the current environment, or move to a neighboring environment.
 Going along with the normal prison day is ALWAYS allowed, even from a locked cell: waiting for meal time, yard time, showers, work duty, library hours, chapel, visitation, sick call or evening count. At those times the guards escort the inmates there, so it moves him to that place even if it is not a neighboring environment.
 rejectionReason must be one short, friendly, in-world sentence telling the viewer why and nudging them to try again.
@@ -43,16 +67,20 @@ verdictReason: one short sentence explaining the verdict (for the admin panel).
 
 Then write BOTH possible outcomes (the game plays whichever one is chosen):
 - successBeat: what happens when it works, advancing him toward an exit. Respect environment adjacency.
-  If successEscapesPrison is true in the input, success on this step ENDS THE GAME: successBeat must be the full
-  escape, using his idea to get from the current environment all the way out of the prison (past the last wall,
-  fence, gate, roof or drain, whatever fits), ending outside the walls, free. Make the idea the key that gets him out.
+  If successEscapesPrison is true in the input AND escapeAttempt is true, success on this step ENDS THE GAME:
+  successBeat must be the full escape, using his idea to get from the current environment all the way out of the
+  prison (past the last wall, fence, gate, roof or drain, whatever fits), ending outside the walls, free. Make the idea
+  the key that gets him out. If escapeAttempt is false, successBeat is an ordinary beat: he is still inside.
 - failBeat: how it goes wrong, ending with him re-detained OR dead (failType). Keep it dramatic, not gory.
-reachesExit: true only if success would plausibly take him fully out of the prison from here.
+escapeAttempt: true only when the direction is itself an attempt to get out of the prison or to get past what holds him
+  (breaking, climbing, digging, sneaking out, a disguise or trick to get through, fleeing). Everyday actions and going
+  along with the prison day are false, however well they go.
+reachesExit: true only if success would plausibly take him fully out of the prison from here (so escapeAttempt is true).
 
 ${bible()}
 
 Respond with JSON only:
-{"allowed":boolean,"rejectionReason":string,"innovation":number,"innovationNote":string,"successBeat":string,"failBeat":string,"failType":"redetained"|"dead","reachesExit":boolean,"succeeds":boolean|null,"verdictReason":string,"intentKey":string}`;
+{"allowed":boolean,"rejectionReason":string,"innovation":number,"innovationNote":string,"successBeat":string,"failBeat":string,"failType":"redetained"|"dead","escapeAttempt":boolean,"reachesExit":boolean,"succeeds":boolean|null,"verdictReason":string,"intentKey":string}`;
 
 export const writerSystem = () => `You are the cinematographer of "Escape from Slop Prison", an interactive anime prison-break film.
 Write ONE MiniMax H3 video prompt for a 15-second, 16:9, multi-shot clip that plays out the given beat.

@@ -56,6 +56,11 @@ export type Diagnosis = {
   failBeat: string;
   failType: "redetained" | "dead";
   reachesExit: boolean;
+  /**
+   * The direction is itself an attempt to get out. Only such an attempt can end the game: an everyday action
+   * on the last step ("stay hydrated") succeeds as an ordinary beat and the story goes on.
+   */
+  escapeAttempt?: boolean;
   /** Canonical "verb:tool:target:destination" form of the attempt; matches archived clips exactly. */
   intentKey?: string;
   /** vibes/hybrid modes: the LLM's verdict. Ignored in dice mode. */
@@ -189,7 +194,7 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
     // escape itself, or the finale plays a small step inside the walls with a "you escaped" screen after it.
     successEscapesPrison: from.depth + 1 >= settings.promptsTillSuccess,
     ...(from.depth + 1 >= settings.promptsTillSuccess && {
-      finale: `If this succeeds, the game ends: successBeat must get him completely out of the prison, from ${from.environmentId} through or past the last barrier to outside the walls, free.`,
+      finale: `If this is an escape attempt and it succeeds, the game ends: successBeat must get him completely out of the prison, from ${from.environmentId} through or past the last barrier to outside the walls, free. If it is not an escape attempt, it cannot end the game however well it goes.`,
     }),
     ...(settings.outcomeMode === "hybrid" && {
       successProbability: settings.successProbability,
@@ -254,8 +259,11 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
 
   const { success, chance, roll } = decideOutcome(settings, diagnosis);
   const nextDepth = from.depth + 1;
+  // Only a real escape attempt can end the game. Enough successful steps opens the door; it does not push
+  // him through it - "read a book" on the last step is a quiet success, and the next direction is the finale.
   const isFinal =
     success &&
+    diagnosis.escapeAttempt === true &&
     (nextDepth >= settings.promptsTillSuccess ||
       (diagnosis.reachesExit && nextDepth >= 0.75 * settings.promptsTillSuccess));
   const outcome: Outcome = !success ? "fail" : isFinal ? "escaped" : "success";
@@ -263,7 +271,7 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
   logEvent({
     kind: "decision",
     label: `outcome → ${outcome}`,
-    request: { mode: settings.outcomeMode, innovation: diagnosis.innovation, succeeds: diagnosis.succeeds, chance, roll, depth: from.depth, promptsTillSuccess: settings.promptsTillSuccess },
+    request: { mode: settings.outcomeMode, innovation: diagnosis.innovation, succeeds: diagnosis.succeeds, escapeAttempt: diagnosis.escapeAttempt, chance, roll, depth: from.depth, promptsTillSuccess: settings.promptsTillSuccess },
     response: { outcome, isFinal, verdictReason: diagnosis.verdictReason },
   });
 
@@ -427,13 +435,19 @@ async function runPipeline(job: Job, from: StoryNode, direction: string) {
  * LLM call and no generation. Returns false when the row has no usable clip (e.g. it was saved in text-only mode).
  */
 function replayArchived(job: Job, from: StoryNode, direction: string, known: CachedClip) {
-  if (known.outcome === "rejected") {
-    markClipUsed(known.id);
-    logEvent({ kind: "decision", label: "archived rejection replayed", response: { direction, reason: known.rejection_reason } });
-    setJob(job, "rejected", known.rejection_reason || known.summary);
-    return true;
-  }
+  /**
+   * Rejections are judged fresh every time rather than replayed. A stored one would outlive any change to what
+   * counts as rejectable (reckless moves used to be refused where they now play as failures), and replaying
+   * saves nothing: LLM 1 is already running alongside the archive lookup.
+   */
+  if (known.outcome === "rejected") return false;
   if (!known.clip_url) return false;
+  // An escape ends the game, so it only replays for someone on their final step. Earlier in a run, the same
+  // move is judged fresh against where they actually are.
+  if (known.outcome === "escaped") {
+    const { promptsTillSuccess } = getSettings();
+    if (from.depth + 1 < promptsTillSuccess) return false;
+  }
 
   markClipUsed(known.id);
   const success = known.outcome !== "fail";
@@ -810,6 +824,7 @@ function mockDiagnosis(direction: string, settings: Settings): Diagnosis {
     rejectionReason: "",
     innovation,
     innovationNote: "[mock] longer = more innovative",
+    escapeAttempt: /(escape|break|climb|dig|sneak|flee|run|disguise|tunnel|out)/i.test(direction),
     intentKey: "",
     succeeds,
     verdictReason: `[mock] ${settings.outcomeMode} verdict`,
